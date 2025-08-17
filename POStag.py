@@ -13,15 +13,19 @@ import spacy
 # ============================
 
 def tokeniser_fr(texte: str):
-    """Tokenise en minuscules, en conservant lettres accentuées et underscore.
-    (Conservée pour compatibilité ; le filtrage des stopwords est fait via spaCy.)
+    """
+    Tokenise en minuscules avec une regex simple, en conservant les lettres accentuées et l’underscore.
+    Cette tokenisation ne dépend pas de spaCy.
     """
     return re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ_]+", texte.lower())
 
-def dataframe_mapping(tokens, formes):
-    """Construit une DataFrame par occurrence : token_original → forme_transformee."""
+def dataframe_mapping(tokens, formes, col_tokens="token", col_formes="lemme"):
+    """
+    Construit une DataFrame alignée 1:1 entre la liste de tokens et la liste de formes.
+    Tronque à la longueur minimale commune par sécurité.
+    """
     n = min(len(tokens), len(formes))
-    return pd.DataFrame({"token_original": tokens[:n], "forme_transformee": formes[:n]})
+    return pd.DataFrame({col_tokens: tokens[:n], col_formes: formes[:n]})
 
 # ============================
 # spaCy (modèle MD uniquement)
@@ -33,7 +37,10 @@ def charger_modele_spacy_md():
     return spacy.load("fr_core_news_md")
 
 def extraire_tokens_spacy(texte: str, retirer_stop: bool = True):
-    """Retourne une liste de tokens (minuscules) selon spaCy, en retirant éventuellement les stopwords spaCy."""
+    """
+    Retourne une liste de tokens (minuscules) selon spaCy, avec retrait éventuel des stopwords spaCy.
+    Cette liste sert d’entrée au mode « par tokens ».
+    """
     nlp = charger_modele_spacy_md()
     doc = nlp(texte)
     tokens = []
@@ -47,10 +54,10 @@ def extraire_tokens_spacy(texte: str, retirer_stop: bool = True):
         tokens.append(t.text.lower())
     return tokens
 
-def appliquer_spacy_md_par_token(tokens):
+def lemmatiser_par_token_spacy(tokens):
     """
-    Applique spaCy MD sur chaque token isolément pour garantir une sortie
-    de même longueur que l’entrée.
+    Lemmatisation hors contexte : applique spaCy MD sur chaque token isolé.
+    La sortie a la même longueur que l’entrée.
     """
     nlp = charger_modele_spacy_md()
     lemmes = []
@@ -62,59 +69,39 @@ def appliquer_spacy_md_par_token(tokens):
             lemmes.append(t)
     return lemmes
 
-def _tokens_spacy_depuis_phrase_md(texte: str, retirer_stop: bool):
-    """Extrait les tokens depuis la segmentation spaCy MD sur la phrase complète, avec filtre spaCy (is_stop) si demandé."""
-    return extraire_tokens_spacy(texte, retirer_stop=retirer_stop)
-
-def appliquer_spacy_md_par_phrase(texte: str, retirer_stop: bool = True):
+def analyser_par_token_spacy(tokens):
     """
-    Analyse la phrase complète avec spaCy MD, puis applique la lemmatisation par token
-    pour conserver un alignement 1:1 avec la liste de tokens issue de la segmentation spaCy.
+    Analyse morpho-syntaxique par token isolé.
+    Renvoie une DataFrame avec token, pos, morph, lemma, is_stopword.
+    Attention : sans contexte, le POS et le lemme peuvent être moins fiables.
     """
     nlp = charger_modele_spacy_md()
-    tokens_spacy = _tokens_spacy_depuis_phrase_md(texte, retirer_stop)
-    lemmes = []
-    for tok in tokens_spacy:
-        doc_t = nlp(tok)
-        if len(doc_t) > 0 and doc_t[0].lemma_:
-            lemmes.append(doc_t[0].lemma_.lower())
-        else:
-            lemmes.append(tok)
-    return tokens_spacy, lemmes
-
-def analyser_spacy_md_pos(texte: str, filtrer_stop: bool = False):
-    """
-    Analyse morpho-syntaxique via spaCy MD sur la phrase saisie.
-    Renvoie token, POS, traits morphologiques et lemme pour chaque token.
-    Filtrage de stopwords via spaCy (t.is_stop).
-    """
-    nlp = charger_modele_spacy_md()
-    doc = nlp(texte)
     rows = []
-    for t in doc:
-        if t.is_space or not t.is_alpha:
+    for t in tokens:
+        doc = nlp(t)
+        if len(doc) == 0:
+            rows.append({"token": t, "pos": None, "morph": {}, "lemma": t, "is_stopword": False})
             continue
-        if filtrer_stop and t.is_stop:
-            continue
+        tok = doc[0]
         rows.append({
-            "token": t.text,
-            "pos": t.pos_,
-            "morph": t.morph.to_json(),
-            "lemma": t.lemma_,
-            "is_stop": bool(t.is_stop)
+            "token": t,
+            "pos": tok.pos_,
+            "morph": tok.morph.to_json(),
+            "lemma": tok.lemma_.lower() if tok.lemma_ else t,
+            "is_stopword": bool(tok.is_stop)
         })
     return pd.DataFrame(rows)
 
 # ============================
-# Rendu aligné mots + étiquettes
+# Affichage aligné mots + étiquettes (visualisation par phrases)
 # ============================
 
 def html_mots_etiquettes(doc, label_mode: str = "POS", afficher_stop: bool = True):
     """
-    Rend une phrase sur une ligne avec, sous chaque mot, l'étiquette choisie.
-    label_mode ∈ {"POS", "LEMMA", "POS+LEMMA"}
+    Rend une phrase sur une ligne avec, sous chaque mot, l’étiquette choisie.
+    label_mode ∈ {"POS", "LEMMA", "POS+LEMMA"}.
+    Cette visualisation s’appuie sur la segmentation de spaCy mais n’affecte pas le traitement « par tokens ».
     """
-    # Style minimaliste pour l’alignement
     css = """
     <style>
     .ligne-phrase { margin: 0.4rem 0 0.2rem 0; white-space: nowrap; overflow-x: auto; }
@@ -140,13 +127,17 @@ def html_mots_etiquettes(doc, label_mode: str = "POS", afficher_stop: bool = Tru
         else:
             lab = f"{t.pos_} | {t.lemma_.lower()}"
         cls_stop = " stop" if t.is_stop else ""
-        blocs.append(f'<div class="token-bloc{cls_stop}"><div class="mot">{t.text}</div><div class="etiquette">{lab}</div></div>')
+        blocs.append(
+            f'<div class="token-bloc{cls_stop}"><div class="mot">{t.text}</div>'
+            f'<div class="etiquette">{lab}</div></div>'
+        )
     html = css + f'<div class="ligne-phrase"><div class="grille-tokens">{"".join(blocs)}</div></div>'
     return html
 
 def rendre_alignement_par_phrases(texte: str, label_mode: str = "POS", afficher_stop: bool = True):
     """
     Génère un rendu HTML pour chaque phrase du texte avec mots en ligne et étiquette dessous.
+    Purement visuel ; ne change rien au traitement par tokens.
     """
     nlp = charger_modele_spacy_md()
     doc = nlp(texte)
@@ -159,86 +150,68 @@ def rendre_alignement_par_phrases(texte: str, label_mode: str = "POS", afficher_
 # Interface Streamlit
 # ==========================
 
-st.set_page_config(page_title="Lemmatisation française — spaCy MD", layout="centered")
-st.title("Lemmatisation et étiquetage morpho-syntaxique (spaCy, modèle medium)")
+st.set_page_config(page_title="Lemmatisation et POS-tagging — spaCy MD", layout="centered")
+st.title("Lemmatisation et POS-tagging (spaCy, modèle medium)")
 
 st.markdown(
-    "La normalisation par lemmatisation réduit la variabilité des formes (pluriels, conjugaisons, dérivations) "
-    "afin de mieux comparer et analyser les textes."
+    "### Qu’est-ce que le POS-tagging ?\n"
+    "Le **POS-tagging** (Part-of-Speech tagging) ou **étiquetage morpho-syntaxique** consiste à attribuer "
+    "à chaque mot de la phrase une **catégorie grammaticale** (nom, verbe, adjectif, etc...) "
+    "et des traits morphologiques (genre, nombre, temps, etc.).\n\n"
+    "Dans spaCy, le POS-tagging s’appuie sur un modèle entraîné qui analyse le **contexte** de chaque mot dans la phrase. "
+    "Cela permet de distinguer des cas ambigus :\n"
+    "- **« recherche »** → peut être un **nom** (« ma recherche ») ou un **verbe** (« je recherche »).\n\n"
+    "Cette étape est fondamentale car le lemme dépend du POS. Ainsi, le POS-tagging améliore la précision "
+    "de la **lemmatisation** et prépare l’**analyse sémantique**."
 )
 
 st.markdown(
-    "Le **POS-tagging** (étiquetage morpho-syntaxique) assigne à chaque mot une **catégorie grammaticale** "
-    "(nom, verbe, adjectif, etc.). Cette information permet de choisir le **bon lemme** selon le rôle du mot "
-    "dans la phrase et d’aborder l’**analyse sémantique** plus finement. "
-    "Par exemple, le mot **« avocat »** peut désigner une **profession** (NOUN → lemme « avocat ») "
-    "ou le **fruit** (NOUN → lemme « avocat »), la désambiguïsation se fait par le **contexte** ; "
-    "de même, **« recherche »** peut être un **nom** (« ma recherche ») ou le **verbe** « rechercher » "
-    "(selon le contexte et le POS, le lemme diffère)."
+    "Le POS-tagging ouvre vers une analyse sémantique plus fiable."
 )
 
-st.markdown("### Saisissez votre texte")
+st.markdown("### Saisissez votre texte :")
 texte = st.text_area(
     "Texte (≈ 5 phrases)",
     height=180,
-    value="La recherche progresse vite dans ce laboratoire. Je dois rechercher des sources fiables. "
+    value="La recherche progresse vite dans ce laboratoire. Je recherche des sources fiables. "
           "Cet avocat plaide au tribunal, tandis que l’avocat bien mûr se tartine sur du pain. "
           "Le surtourisme fragilise certains territoires et modifie la vie des habitants."
 )
 
-retirer_stop = st.checkbox("Retirer les stopwords selon spaCy", value=True)
+retirer_stop = st.checkbox("Retirer les stopwords selon spaCy (pour le traitement par tokens)", value=True)
 
-# Préparation « mode par token » à partir de spaCy (filtre spaCy)
-tokens_filtres = extraire_tokens_spacy(texte, retirer_stop=retirer_stop)
+# Traitement par tokens avec spaCy pour le filtrage des stopwords
+tokens_spacy = extraire_tokens_spacy(texte, retirer_stop=retirer_stop)
 
-st.markdown("Aperçu des tokens normalisés (mode par token, stopwords gérés par spaCy)")
-st.write(tokens_filtres[:40])
-st.write(f"Nombre de tokens après filtrage : {len(tokens_filtres)}")
-
-st.markdown("---")
-st.subheader("Mode d’application de la lemmatisation (spaCy MD)")
-mode_spacy = st.radio(
-    "Choisir le mode",
-    ["Par token (même longueur que l’entrée)", "Par phrase (segmentation spaCy)"],
-    index=0
-)
+st.subheader("Aperçu des tokens (spaCy, après éventuel retrait des stopwords)")
+st.write(tokens_spacy[:40])
+st.write(f"Nombre de tokens conservés : {len(tokens_spacy)}")
 
 st.markdown("---")
-st.subheader("Résultats de lemmatisation (spaCy MD)")
+st.subheader("Tableau token → lemme (hors contexte, spaCy MD)")
 
-if mode_spacy.startswith("Par token"):
-    try:
-        formes = appliquer_spacy_md_par_token(tokens_filtres)
-        df_md = dataframe_mapping(tokens_filtres, formes)
-        st.dataframe(df_md, use_container_width=True)
-    except Exception as e:
-        st.error(f"Erreur spaCy MD (par token) : {e}")
-else:
-    try:
-        toks_spacy, formes = appliquer_spacy_md_par_phrase(texte, retirer_stop=retirer_stop)
-        df_md = dataframe_mapping(toks_spacy, formes)
-        st.caption("Tokens issus de la segmentation spaCy MD, filtrés avec les stopwords spaCy.")
-        st.dataframe(df_md, use_container_width=True)
-    except Exception as e:
-        st.error(f"Erreur spaCy MD (par phrase) : {e}")
+try:
+    lemmes = lemmatiser_par_token_spacy(tokens_spacy)
+    df_lemmas = dataframe_mapping(tokens_spacy, lemmes)
+    st.dataframe(df_lemmas, use_container_width=True)
+except Exception as e:
+    st.error(f"Erreur lors de la lemmatisation par tokens : {e}")
 
 st.markdown("---")
-st.subheader("Analyse POS et traits morphologiques (spaCy MD) sur la phrase saisie")
-afficher_pos = st.checkbox("Afficher POS, traits morphologiques et lemmes", value=True)
+st.subheader("Analyse morpho-syntaxique par token")
+
+afficher_pos = st.checkbox("Afficher POS et traits morphologiques (par token)", value=True)
 if afficher_pos:
     try:
-        df_pos = analyser_spacy_md_pos(texte, filtrer_stop=False)
+        df_pos = analyser_par_token_spacy(tokens_spacy)
         st.dataframe(df_pos, use_container_width=True)
     except Exception as e:
-        st.error(f"Erreur d’analyse POS spaCy MD : {e}")
+        st.error(f"Erreur lors de l’analyse POS par tokens : {e}")
 
 st.markdown("---")
-st.subheader("Affichage aligné : mots sur une ligne, étiquette dessous")
-label_mode = st.selectbox(
-    "Étiquette à afficher",
-    options=["POS", "LEMMA", "POS+LEMMA"],
-    index=0
-)
+st.subheader("Affichage aligné par phrase (visualisation)")
+
+label_mode = st.selectbox("Étiquette à afficher", ["POS", "LEMMA", "POS+LEMMA"], index=0)
 afficher_stop_visu = st.checkbox("Afficher aussi les stopwords dans la visualisation alignée", value=False)
 
 try:
@@ -247,3 +220,23 @@ try:
 except Exception as e:
     st.error(f"Erreur de rendu aligné : {e}")
 
+# Export CSV
+st.markdown("---")
+st.subheader("Export des résultats")
+col1, col2 = st.columns(2)
+with col1:
+    if 'df_lemmas' in locals():
+        st.download_button(
+            "Télécharger token→lemme (CSV)",
+            data=df_lemmas.to_csv(index=False).encode("utf-8"),
+            file_name="tokens_lemmes_spacy_md.csv",
+            mime="text/csv"
+        )
+with col2:
+    if afficher_pos and 'df_pos' in locals():
+        st.download_button(
+            "Télécharger POS par token (CSV)",
+            data=df_pos.to_csv(index=False).encode("utf-8"),
+            file_name="pos_par_tokens_spacy_md.csv",
+            mime="text/csv"
+        )
