@@ -80,7 +80,7 @@ if fichiers:
     image_buffer = io.BytesIO()
     fig.savefig(image_buffer, format='png')
     st.download_button(
-        label="📸 Télécharger le graphique",
+        label="Télécharger le graphique",
         data=image_buffer.getvalue(),
         file_name="graphique_zipf.png",
         mime="image/png"
@@ -106,11 +106,6 @@ Pourquoi faire cela ?
 Parce que cela permet de mieux voir les différences **dans un très grand intervalle de valeurs**.  
 Si tu affiches un mot très fréquent (comme "le", "de", "et") avec un mot très rare (comme "capitulaire", "mégajoule"),  
 l’échelle normale serait illisible. Le **logarithme compresse visuellement les données** pour que la distribution soit observable.
-
-Enfin, ce que tu vois :  
-- Une **chute rapide** au début : ce sont les mots fréquents.
-- Une **zone descendante presque droite** au milieu : signe que la loi de Zipf est respectée.
-- Une **courbe plate** à la fin : ce sont les mots très rares (Hapax).
 
 ---
 
