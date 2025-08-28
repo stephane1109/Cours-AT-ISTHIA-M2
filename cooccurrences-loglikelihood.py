@@ -17,7 +17,16 @@
 #     - 3. lexico-syntaxiques (spaCy)
 
 # (1)
-# (2)
+
+# (2) Log-likelihood : mesurer la force des cooccurrences
+# Le log-likelihood est une mesure statistique qui sert à tester l’indépendance entre deux mots.
+# L’idée est de distinguer deux situations :
+#       - les cooccurrences qui apparaissent par simple hasard, parce que les mots sont fréquents dans le corpus ;
+#       - celles qui apparaissent beaucoup plus souvent que prévu, et qui révèlent donc une association significative.
+# Le log-likelihood est donc une mesure qui permet de faire le tri :
+# il indique si une cooccurrence est juste due à la fréquence des mots, ou si elle est anormalement fréquente et donc révélatrice d’un lien fort.
+# En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter.
+
 # (3) L’analyse Lexico-syntaxique s’appuie sur les unités lexicales liées par des relations grammaticales et met en avant les dépendances
 
 # L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag, et l'approche lexico-syntaxique
@@ -177,7 +186,7 @@ def fenetres_paragraphes(texte: str, stopset, pivot, exclure_nombres: bool, excl
     return fenetres
 
 # ================================
-# COOCCURRENCES SYNTAXIQUES (spaCy)
+# COOCCURRENCES LEXICO-SYNTAXIQUES
 # ================================
 def extraire_cooc_syntaxiques_doc(doc, pivot: str, stopset, exclure_nombres: bool, exclure_monolettre: bool):
     """
@@ -217,7 +226,7 @@ def extraire_cooc_syntaxiques_doc(doc, pivot: str, stopset, exclure_nombres: boo
     return compteur_pairs, index_phrase_pairs
 
 # ================================
-# LOG-LIKELIHOOD (SciPy)
+# LOG-LIKELIHOOD (avec la librairie SciPy)
 # ================================
 def loglike_scipy_par_mot(T: int, F1: int, f2: int, a: int) -> float:
     """G² via SciPy (rapport de vraisemblance) sur la table 2×2."""
@@ -544,10 +553,10 @@ def html_relations_pivot_aligne(sent, pivot: str, cible: str = "", afficher_stop
     return css + f'<div class="ligne-phrase"><div class="grille-tokens">{"".join(blocs)}</div></div>'
 
 # ================================
-# INTERFACE — TITRE + EXPLICATIONS GÉNÉRALES
+# INTERFACE — TITRE + EXPLICATIONS
 # ================================
 st.set_page_config(page_title="Cooccurrences — Fréquences, Syntaxiques & Log-likelihood", layout="centered")
-st.markdown("# Cooccurrences autour d’un mot pivot : fréquences, syntaxe et log-likelihood")
+st.markdown("# Cooccurrences autour d’un mot pivot : fréquences, log-likelihood, lexico-syntaxique")
 st.markdown(
     "Cette application sépare les fréquences brutes, le score de log-likelihood et l’analyse lexico-syntaxique.  \n"
     "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en mots (±k), en phrase ou en paragraphe.  \n"
@@ -562,7 +571,7 @@ st.markdown(
 uploaded = st.file_uploader("Fichier texte (.txt)", type=["txt"])
 texte_libre = st.text_area("Ou collez votre texte ici", height=220)
 
-st.markdown("### Paramètres d’analyse")
+st.markdown("## Paramètres d’analyse")
 pivot = st.text_input("Mot pivot (obligatoire)", value="soleil").strip().lower()
 fenetre = st.selectbox("Fenêtre de contexte pour Fréquences et Log-likelihood", ["Mots (±k)", "Phrase", "Paragraphe"])
 k = 5
@@ -580,7 +589,7 @@ if "analysis_ready" not in st.session_state:
     st.session_state["analysis_ready"] = False
 
 # ================================
-# ANALYSE (au clic)
+# ANALYSE
 # ================================
 if st.button("Lancer l’analyse"):
     if not pivot:
@@ -737,7 +746,14 @@ if st.session_state.get("analysis_ready", False):
         # =====================================
         # 1) FRÉQUENCES (tableau, nuage, graphe, concordancier)
         # =====================================
-        st.markdown("## Tableau 1 — Fréquences pivot-centrées")
+        st.markdown("# 1 — Fréquences à partir du mot pivot")
+        st.markdown(
+            "Ici, on analyse simplement les **cooccurrences récurrentes**, c’est-à-dire les mots qui apparaissent souvent "
+            "dans le même contexte que le pivot.\n\n"
+            "Plus la fréquence est élevée, plus cela indique que ces mots sont régulièrement associés dans le texte.\n\n"
+            "Cette approche ne dit pas si l’association est due au hasard ou non : elle permet surtout d’observer "
+            "les répétitions les plus visibles dans un corpus."
+        )
         st.caption("frequence = nombre de fenêtres où pivot et mot co-apparaissent ; fenetres_ensemble = nombre de fenêtres contenant simultanément pivot et mot.")
         df_freq = st.session_state["df_freq"]
         st.dataframe(df_freq, use_container_width=True)
@@ -793,8 +809,17 @@ if st.session_state.get("analysis_ready", False):
         # =====================================
         # 2) LOG-LIKELIHOOD (tableau, nuage, graphe, concordancier)
         # =====================================
-        st.markdown("## Tableau 2 — Scores log-likelihood (G²)")
-        st.caption("Score G² calculé sur les mêmes fenêtres que les fréquences. Le label des arêtes du graphe affiche le score.")
+        st.markdown("# 2 — Scores log-likelihood")
+        st.caption("Score calculé sur les mêmes fenêtres que les fréquences.")
+        st.markdown(
+            "Le log-likelihood est une mesure statistique qui sert à tester l’indépendance entre deux mots.\n\n"
+            "L’idée est de distinguer deux situations :\n"
+            "- les cooccurrences qui apparaissent **par simple hasard**, parce que les mots sont fréquents dans le corpus ;\n"
+            "- celles qui apparaissent **beaucoup plus souvent que prévu**, et qui révèlent donc une association significative.\n\n"
+            "Le log-likelihood est donc une mesure qui permet de faire le tri : "
+            "il indique si une cooccurrence est juste due à la fréquence des mots, ou si elle est **anormalement fréquente** et donc révélatrice d’un lien fort.\n\n"
+            "En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter."
+        )
         df_ll = st.session_state["df_ll"]
         st.dataframe(df_ll, use_container_width=True)
         st.download_button(
@@ -852,7 +877,7 @@ if st.session_state.get("analysis_ready", False):
         # =====================================
         # 3) ANALYSE LEXICO-SYNTAXIQUE (tableau, nuage, graphe, concordancier aligné)
         # =====================================
-        st.markdown("## Tableau 3 — Cooccurrences syntaxiques (étiquettes spaCy)")
+        st.markdown("# 3 — Cooccurrences lexico-syntaxiques")
         st.caption("Une ligne par cooccurrent et par relation spaCy (nsubj, obj, amod, obl, …).")
         df_syn = st.session_state["df_syn"]
         st.dataframe(df_syn, use_container_width=True)
@@ -937,13 +962,5 @@ if st.session_state.get("analysis_ready", False):
         st.markdown("### Relations de dépendance (UD/spaCy)")
         st.dataframe(st.session_state["df_dep_exp"], use_container_width=True)
 
-
-
-
 else:
     st.info("Lancez l’analyse pour afficher les tableaux, les nuages de mots, les graphes, les concordanciers, le lexique et les explications.")
-
-
-
-
-
