@@ -1,7 +1,15 @@
+################################################
+# Stéphane Meurisse
+# www.codeandcortex.fr
+# 28 aout 2025
+################################################
+
 # python -m streamlit run main.py
 
+# ########## Dépendances
 # pip install streamlit pandas matplotlib worldcloud pyvis scipy
 # python -m spacy download fr_core_news_md
+############
 
 # Application Streamlit : Analyse des Cooccurrences par 
 #     — Fréquences
