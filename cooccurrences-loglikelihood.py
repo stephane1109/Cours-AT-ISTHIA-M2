@@ -10,7 +10,7 @@
 # - Réordonner l’affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
 # Contraintes générales déjà intégrées :
 # - Paramètres sous le texte, pas de barre latérale. Résultats en dessous (onglets Résultats, Lexique, Explications).
-# - Fenêtres linéaires : Mots (±k), Phrase, Paragraphe (pour Fréquences & Log-likelihood). Mode "Document" supprimé.
+# - Fenêtres linéaires : Mots (±k), Phrase, Paragraphe (pour Fréquences & Log-likelihood).
 # - Stopwords : option spaCy (sans ajout manuel). Nettoyage optionnel des nombres et des mots d’1 lettre.
 # - Apostrophes : « c’est » -> « est », « l’homme » -> « homme » ; le pivot n’est jamais filtré.
 # - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy (G²) sur les mêmes fenêtres que les fréquences.
