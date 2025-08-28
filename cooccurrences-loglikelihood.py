@@ -3,19 +3,22 @@
 # pip install streamlit pandas matplotlib worldcloud pyvis scipy
 # python -m spacy download fr_core_news_md
 
-# -*- coding: utf-8 -*-
-# Application Streamlit : Cooccurrences — Fréquences, Syntaxiques (spaCy) & Log-likelihood + Lexique + Explications
-# Modifs demandées :
-# - Conserver uniquement le « Concordancier syntaxique — affichage aligné (relations du pivot) » (suppression du concordancier syntaxique "phrases surface").
-# - Réordonner l’affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
-# Contraintes générales déjà intégrées :
+# Application Streamlit : Analyse des Cooccurrences par 
+#     — Fréquences
+#     - log-likelihood + Lexique + Explications
+#     - lexico-syntaxiques (spaCy)
+
+# - Affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
+
 # - Paramètres sous le texte, pas de barre latérale. Résultats en dessous (onglets Résultats, Lexique, Explications).
 # - Fenêtres linéaires : Mots (±k), Phrase, Paragraphe (pour Fréquences & Log-likelihood).
 # - Stopwords : option spaCy (sans ajout manuel). Nettoyage optionnel des nombres et des mots d’1 lettre.
-# - Apostrophes : « c’est » -> « est », « l’homme » -> « homme » ; le pivot n’est jamais filtré.
-# - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy (G²) sur les mêmes fenêtres que les fréquences.
-# - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement). Tous téléchargeables en HTML autonome.
-# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²), Syntaxique (label = relation spaCy). Couleurs vives, largeur des arêtes proportionnelle au poids.
+# - Apostrophes : « c’est » -> « est », « l’homme » -> « homme »
+# - le mot pivot n’est jamais filtré.
+# - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy sur les mêmes fenêtres que les fréquences.
+# - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement). 
+# - Tout est téléchargeables en HTML autonome.
+# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²), Syntaxique (label = relation spaCy). 
 
 # ================================
 # IMPORTS
