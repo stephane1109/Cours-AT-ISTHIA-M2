@@ -8,10 +8,13 @@
 #     - log-likelihood + Lexique + Explications
 #     - lexico-syntaxiques (spaCy)
 
+# L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag, et l'approche lexico-syntaxique
+
 # - Affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
 
-# - Paramètres sous le texte, pas de barre latérale. Résultats en dessous (onglets Résultats, Lexique, Explications).
-# - Fenêtres linéaires : Mots (±k), Phrase, Paragraphe (pour Fréquences & Log-likelihood).
+# - Paramètres sous le texte, pas de barre latérale. 
+# - Résultats en dessous (onglets Résultats, Lexique, Explications).
+# - 3 modes de fenêtres : Mots (±k), Phrase, Paragraphe.
 # - Stopwords : option spaCy (sans ajout manuel). Nettoyage optionnel des nombres et des mots d’1 lettre.
 # - Apostrophes : « c’est » -> « est », « l’homme » -> « homme »
 # - le mot pivot n’est jamais filtré.
