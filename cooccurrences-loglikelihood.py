@@ -11,25 +11,29 @@
 # python -m spacy download fr_core_news_md
 ############
 
-# Application Streamlit : Analyse des Cooccurrences par 
-#     — Fréquences
-#     - log-likelihood + Lexique + Explications
-#     - lexico-syntaxiques (spaCy)
+# Application Streamlit : Analyse des Cooccurrences par :
+#     - 1. Fréquences
+#     - 2. log-likelihood
+#     - 3. lexico-syntaxiques (spaCy)
+
+# (1)
+# (2)
+# (3) L’analyse Lexico-syntaxique s’appuie sur les unités lexicales liées par des relations grammaticales et met en avant les dépendances
 
 # L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag, et l'approche lexico-syntaxique
 
 # - Affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
 
-# - Paramètres sous le texte, pas de barre latérale. 
+# - Paramètres sous le texte, pas de barre latérale.
 # - Résultats en dessous (onglets Résultats, Lexique, Explications).
-# - 3 modes de fenêtres : Mots (±k), Phrase, Paragraphe.
+# - 3 modes de fenêtres au choix : Mots (±k), Phrase (ponctuation), Paragraphe (retour à la ligne).
 # - Stopwords : option spaCy (sans ajout manuel). Nettoyage optionnel des nombres et des mots d’1 lettre.
 # - Apostrophes : « c’est » -> « est », « l’homme » -> « homme »
 # - le mot pivot n’est jamais filtré.
 # - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy sur les mêmes fenêtres que les fréquences.
-# - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement). 
+# - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement).
 # - Tout est téléchargeables en HTML autonome.
-# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²), Syntaxique (label = relation spaCy). 
+# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²), Syntaxique (label = relation spaCy).
 
 # ================================
 # IMPORTS
