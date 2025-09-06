@@ -1,7 +1,7 @@
 ################################################
 # Stéphane Meurisse
 # www.codeandcortex.fr
-# 28 aout 2025
+# 06 Septembre 2025
 ################################################
 
 # python -m streamlit run main.py
@@ -183,31 +183,44 @@ def fenetres_paragraphes(texte: str, stopset, pivot, exclure_nombres: bool, excl
     return fenetres
 
 # ================================
-# LOG-LIKELIHOOD (avec la librairie SciPy)
+# LOG-LIKELIHOOD (statistique + p-valeur)
 # ================================
-def loglike_scipy_par_mot(T: int, F1: int, f2: int, a: int) -> float:
-    """G² via SciPy (rapport de vraisemblance) sur la table 2×2."""
-    b = F1 - a; c = f2 - a; d = T - a - b - c
+def loglike_scipy_par_mot(T: int, F1: int, f2: int, a: int):
+    """
+    Calcule G² et la p-valeur pour une table 2×2 :
+    a=O11, b=O12, c=O21, d=O22, avec
+    b = F1 - a ; c = f2 - a ; d = T - a - b - c.
+    Renvoie (G2, pval). Retourne (0.0, 1.0) si la table est invalide.
+    """
+    b = F1 - a
+    c = f2 - a
+    d = T - a - b - c
     if min(a, b, c, d) < 0:
-        return 0.0
+        return 0.0, 1.0
     obs = np.array([[a, b], [c, d]], dtype=float)
     total = obs.sum()
     if total <= 0:
-        return 0.0
+        return 0.0, 1.0
     row_sums = obs.sum(axis=1, keepdims=True)
     col_sums = obs.sum(axis=0, keepdims=True)
     exp = (row_sums @ col_sums) / total
-    stat, _ = power_divergence(obs, f_exp=exp, lambda_="log-likelihood", axis=None)
-    if not np.isfinite(stat):
-        return 0.0
-    return float(max(stat, 0.0))
+    stat, pval = power_divergence(obs, f_exp=exp, lambda_="log-likelihood", axis=None)
+    if not np.isfinite(stat) or not np.isfinite(pval):
+        return 0.0, 1.0
+    return float(max(stat, 0.0)), float(max(min(pval, 1.0), 0.0))
 
 def compter_loglike_sur_fenetres(fenetres, pivot: str):
-    """Calcule scores G², T, F1, F12, F2 à partir d’un jeu de fenêtres."""
+    """
+    Calcule, pour chaque mot w, le couple (G², p) ainsi que T, F1, F12, F2.
+    T = nombre de fenêtres ; F1 = fenêtres contenant le pivot ;
+    F2[w] = fenêtres contenant w ; F12[w] = co-présences pivot–w.
+    """
     T = len(fenetres)
     if T == 0:
-        return {}, 0, 0, {}, Counter()
-    F1 = 0; F2 = Counter(); F12 = Counter()
+        return {}, {}, 0, 0, {}, Counter()
+    F1 = 0
+    F2 = Counter()
+    F12 = Counter()
     for S in fenetres:
         cp = pivot in S
         if cp:
@@ -217,12 +230,15 @@ def compter_loglike_sur_fenetres(fenetres, pivot: str):
             if cp and w != pivot:
                 F12[w] += 1
     scores = {}
+    pvals = {}
     for w, f2 in F2.items():
         if w == pivot:
             continue
-        a = F12[w]
-        scores[w] = loglike_scipy_par_mot(T, F1, f2, a)
-    return scores, T, F1, dict(F12), F2
+        a = F12[w]  # O11
+        g2, p = loglike_scipy_par_mot(T, F1, f2, a)
+        scores[w] = g2
+        pvals[w] = p
+    return scores, pvals, T, F1, dict(F12), F2
 
 # ================================
 # UTILITAIRES (POS, CSV, WordCloud, PyVis, Explications POS)
@@ -283,7 +299,6 @@ def pyvis_reseau_html(pivot: str, poids_dict, titre: str, top_n: int = 30, synta
             return 2
         return 1 + 5 * ((v - wmin) / (wmax - wmin))
 
-    # Mode non syntaxique (fréquence ou log-likelihood)
     for idx, (w, p) in enumerate(items):
         couleur = couleurs[idx % len(couleurs)]
         net.add_node(w, label=w, title=w, value=20, color=couleur)
@@ -300,7 +315,7 @@ def pyvis_reseau_html(pivot: str, poids_dict, titre: str, top_n: int = 30, synta
     return net.generate_html()
 
 # ================================
-# TABLE EXPLICATIVE — POS (spaCy/UD) avec définition FR + exemple
+# TABLE EXPLICATIVE — POS (spaCy/UD)
 # ================================
 def table_pos_explicative_fr_enrichie() -> pd.DataFrame:
     """POS spaCy/UD : label, définition synthétique (FR), exemple court."""
@@ -315,9 +330,9 @@ def table_pos_explicative_fr_enrichie() -> pd.DataFrame:
         ("INTJ",  "interjection",                                 "oh, quelle affluence"),
         ("NOUN",  "nom commun",                                   "tourisme, fréquentation, hausse"),
         ("PROPN", "nom propre",                                   "Paris, Île-de-France"),
-        ("NUM",   "numéral",                                       "plus de 10 millions"),
-        ("PART",  "particule/particule grammaticale",             "ne ... pas"),
-        ("PRON",  "pronom",                                        "ils augmentent"),
+        ("NUM",   "numéral",                                      "plus de 10 millions"),
+        ("PART",  "particule grammaticale",                       "ne ... pas"),
+        ("PRON",  "pronom",                                       "ils augmentent"),
         ("PUNCT", "ponctuation",                                   "— , . ; :"),
         ("SYM",   "symbole",                                       "%, €"),
         ("VERB",  "verbe lexical",                                 "augmente, progresse"),
@@ -360,7 +375,7 @@ def phrase_surface_html(sent, pivot, cible, stopset, exclure_nombres, exclure_mo
     return css + f"<div class='kwic-sent'>{''.join(out).strip()}</div>"
 
 def document_html_kwic(titre: str, lignes_html):
-    """Document HTML autonome pour téléchargement d’un concordancier."""
+    """Document HTML pour téléchargement d’un concordancier."""
     style = (
         "<style>"
         "body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Noto Sans','Helvetica Neue',Arial;line-height:1.6;padding:12px}"
@@ -392,11 +407,10 @@ def document_html_kwic(titre: str, lignes_html):
 st.set_page_config(page_title="Cooccurrences — Fréquences & Log-likelihood", layout="centered")
 st.markdown("# Cooccurrences autour d’un mot pivot : fréquences et log-likelihood")
 st.markdown(
-    "Cette application sépare les **fréquences brutes** et le **score de log-likelihood**.  \n"
-    "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en **mots (±k)**, en **phrase** ou en **paragraphe**.  \n"
-    "Le mot pivot n’est jamais filtré.  \n"
-    "Les stopwords spaCy, les nombres et les mots d’une lettre peuvent être exclus.  \n"
-    "Les formes avec apostrophe sont normalisées en conservant la partie à droite.  \n"
+    "Cette application analyse les cooccurrences selon leurs **fréquences brutes** et le **score de log-likelihood**.\n\n"
+    "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en **mots (±k)**, en **phrase** ou en **paragraphe**.\n\n"
+    "Le mot pivot n’est jamais filtré. Les stopwords (spaCy), les nombres et les mots d’une lettre peuvent être exclus. "
+    "Les formes avec apostrophe sont normalisées en conservant la partie à droite."
 )
 
 # ================================
@@ -458,8 +472,8 @@ if st.button("Lancer l’analyse"):
                 if w != pivot:
                     freq_counter[w] += 1
 
-    # Log-likelihood sur les mêmes fenêtres
-    scores, T, F1, F12, F2 = compter_loglike_sur_fenetres(fenetres, pivot)
+    # Log-likelihood sur les mêmes fenêtres (scores + p-valeurs)
+    scores, pvals, T, F1, F12, F2 = compter_loglike_sur_fenetres(fenetres, pivot)
 
     # POS pour tableaux
     pos_tags = etiqueter_pos_corpus([texte], stopset, pivot, exclure_nombres, exclure_monolettre)
@@ -471,11 +485,11 @@ if st.button("Lancer l’analyse"):
         columns=["cooccurrent", "pos", "frequence", "fenetres_ensemble"]
     ).sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False]).reset_index(drop=True)
 
-    # TABLEAU — Log-likelihood
+    # TABLEAU — Log-likelihood (avec p-valeur)
     df_ll = pd.DataFrame(
-        [(w, pos_tags.get(w, ""), float(scores[w]), int(F12.get(w, 0)))
-         for w in sorted([x for x in scores.keys() if x != pivot])],
-        columns=["cooccurrent", "pos", "loglike", "fenetres_ensemble"]
+        [(w, pos_tags.get(w, ""), float(scores[w]), float(pvals[w]), int(F12.get(w, 0)))
+         for w in sorted([x for x in scores.keys() if x != pivot])]
+        , columns=["cooccurrent", "pos", "loglike", "p_value", "fenetres_ensemble"]
     ).sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False]).reset_index(drop=True)
 
     # Concordanciers : listes de phrases
@@ -503,7 +517,7 @@ if st.button("Lancer l’analyse"):
     st.session_state["analysis_ready"] = True
     st.session_state["pivot"] = pivot
     st.session_state["df_freq"] = df_freq
-    st.session_state["df_ll"] = df_ll
+    st.session_state["df_ll_full"] = df_ll  # version complète avant filtrage
     st.session_state["sent_spans"] = sent_spans
     st.session_state["stopset"] = stopset
     st.session_state["excl_num"] = exclure_nombres
@@ -612,23 +626,29 @@ if st.session_state.get("analysis_ready", False):
                 )
 
         # =====================================
-        # 2) LOG-LIKELIHOOD (tableau, nuage, graphe, concordancier)
+        # 2) LOG-LIKELIHOOD (filtrage p-valeur + tableaux/nuage/graphe/concordancier)
         # =====================================
         st.markdown("# 2 — Scores log-likelihood")
         st.caption("Score calculé sur les mêmes fenêtres que les fréquences.")
         st.markdown(
-            "Le log-likelihood est une mesure statistique qui sert à tester l’indépendance entre deux mots.\n\n"
-            "L’idée est de distinguer deux situations :\n"
-            "- les cooccurrences qui apparaissent **par simple hasard**, parce que les mots sont fréquents dans le corpus ;\n"
-            "- celles qui apparaissent **beaucoup plus souvent que prévu**, et qui révèlent donc une association significative.\n\n"
-            "En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter."
+            "Le log-likelihood sert à tester l’indépendance entre deux mots. Plus le score est élevé et la p-valeur faible, "
+            "plus l’association est statistiquement probante."
         )
-        df_ll = st.session_state["df_ll"]
+
+        # Bouton de filtrage par p-valeur
+        activer_filtre_p = st.checkbox("Afficher uniquement les paires significatives (p < 0,05)", value=False, key=f"filtre_p_{st.session_state['run_id']}")
+
+        df_ll_full = st.session_state["df_ll_full"].copy()
+        if activer_filtre_p:
+            df_ll = df_ll_full[df_ll_full["p_value"] < 0.05].reset_index(drop=True)
+        else:
+            df_ll = df_ll_full
+
         st.dataframe(df_ll, use_container_width=True)
         st.download_button(
-            label="Télécharger le CSV (Log-likelihood)",
+            label="Télécharger le CSV (Log-likelihood — affiché)",
             data=generer_csv(df_ll).getvalue(),
-            file_name="cooccurrences_loglike.csv",
+            file_name="cooccurrences_loglike_affiche.csv",
             mime="text/csv",
             key=f"dl_csv_ll_{st.session_state['run_id']}"
         )
@@ -637,7 +657,7 @@ if st.session_state.get("analysis_ready", False):
         top_n_ll = st.number_input("Top N (log-likelihood)", min_value=1, max_value=500, value=10, step=1, key=f"top_wc_ll_{st.session_state['run_id']}")
         df_top_ll = df_ll[df_ll["loglike"] > 0].sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False]).head(int(top_n_ll))
         if df_top_ll.empty:
-            st.info("Aucun score log-likelihood strictement positif à afficher pour le nuage de mots.")
+            st.info("Aucun élément à afficher dans le nuage (vérifiez le filtrage p ou la taille du corpus).")
         else:
             generer_wordcloud(dict(zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])), f"Top {int(top_n_ll)} cooccurrences (log-likelihood)")
 
