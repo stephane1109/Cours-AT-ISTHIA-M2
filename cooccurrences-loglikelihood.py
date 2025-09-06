@@ -14,9 +14,8 @@
 # Application Streamlit : Analyse des Cooccurrences par :
 #     - 1. Fréquences
 #     - 2. log-likelihood
-#     - 3. lexico-syntaxiques (spaCy)
 
-# (1)
+# (1) analyse
 
 # (2) Log-likelihood : mesurer la force des cooccurrences
 # Le log-likelihood est une mesure statistique qui sert à tester l’indépendance entre deux mots.
@@ -27,11 +26,9 @@
 # il indique si une cooccurrence est juste due à la fréquence des mots, ou si elle est anormalement fréquente et donc révélatrice d’un lien fort.
 # En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter.
 
-# (3) L’analyse Lexico-syntaxique s’appuie sur les unités lexicales liées par des relations grammaticales et met en avant les dépendances
+# L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag...
 
-# L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag, et l'approche lexico-syntaxique
-
-# - Affichage des résultats : 1) Fréquences, 2) Log-likelihood, 3) Analyse lexico-syntaxique.
+# - Affichage des résultats : 1) Fréquences, 2) Log-likelihood
 
 # - Paramètres sous le texte, pas de barre latérale.
 # - Résultats en dessous (onglets Résultats, Lexique, Explications).
@@ -42,7 +39,7 @@
 # - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy sur les mêmes fenêtres que les fréquences.
 # - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement).
 # - Tout est téléchargeables en HTML autonome.
-# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²), Syntaxique (label = relation spaCy).
+# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²)
 
 # ================================
 # IMPORTS
@@ -186,46 +183,6 @@ def fenetres_paragraphes(texte: str, stopset, pivot, exclure_nombres: bool, excl
     return fenetres
 
 # ================================
-# COOCCURRENCES LEXICO-SYNTAXIQUES
-# ================================
-def extraire_cooc_syntaxiques_doc(doc, pivot: str, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """
-    Pour chaque pivot surface : enfants (child.dep_) + tête (tok.dep_ vers head).
-    Retour :
-      - compteur_pairs : Counter{ (mot_norm, relation_spacy) -> fréquence }
-      - index_phrase_pairs : liste par phrase des paires (mot_norm, relation_spacy) pour filtrage du concordancier
-    """
-    compteur_pairs = Counter()
-    index_phrase_pairs = []
-
-    for sent in doc.sents:
-        pairs = []
-        for tok in sent:
-            tok_norm = normaliser_avec_apostrophe_joint(tok.text).lower()
-            if tok_norm != pivot:
-                continue
-            # Enfants du pivot
-            for child in tok.children:
-                w = normaliser_avec_apostrophe_joint(child.text).lower()
-                if not w.isalnum():
-                    continue
-                if (exclure_nombres and w.isdigit()) or (exclure_monolettre and len(w) == 1):
-                    continue
-                if w in stopset or w == pivot:
-                    continue
-                rel = child.dep_
-                pairs.append((w, rel)); compteur_pairs[(w, rel)] += 1
-            # Tête du pivot (si pas racine)
-            if tok.head is not None and tok.head != tok:
-                w = normaliser_avec_apostrophe_joint(tok.head.text).lower()
-                if w.isalnum() and w != pivot and not (exclure_nombres and w.isdigit()) and not (exclure_monolettre and len(w) == 1) and w not in stopset:
-                    rel = tok.dep_
-                    pairs.append((w, rel)); compteur_pairs[(w, rel)] += 1
-        index_phrase_pairs.append(pairs)
-
-    return compteur_pairs, index_phrase_pairs
-
-# ================================
 # LOG-LIKELIHOOD (avec la librairie SciPy)
 # ================================
 def loglike_scipy_par_mot(T: int, F1: int, f2: int, a: int) -> float:
@@ -268,7 +225,7 @@ def compter_loglike_sur_fenetres(fenetres, pivot: str):
     return scores, T, F1, dict(F12), F2
 
 # ================================
-# UTILITAIRES (POS, CSV, WordCloud, PyVis, Explications, HTML)
+# UTILITAIRES (POS, CSV, WordCloud, PyVis, Explications POS)
 # ================================
 def etiqueter_pos_corpus(textes, stopset, pivot, exclure_nombres: bool, exclure_monolettre: bool):
     """POS majoritaire par forme normalisée (cohérent avec l’analyse)."""
@@ -326,37 +283,24 @@ def pyvis_reseau_html(pivot: str, poids_dict, titre: str, top_n: int = 30, synta
             return 2
         return 1 + 5 * ((v - wmin) / (wmax - wmin))
 
-    if syntaxique:
-        for idx, ((w, rel), p) in enumerate(items):
-            couleur = couleurs[idx % len(couleurs)]
-            net.add_node(w, label=w, title=w, value=20, color=couleur)
-            label = rel if rel else ""
-            net.add_edge(
-                pivot, w,
-                value=float(p),
-                width=width_scale(float(p)),
-                label=label,
-                title=f"{label} — {p}",
-                font={"size": edge_label_size}
-            )
-    else:
-        for idx, (w, p) in enumerate(items):
-            couleur = couleurs[idx % len(couleurs)]
-            net.add_node(w, label=w, title=w, value=20, color=couleur)
-            edge_label = f"{int(p)}" if mode_label == "freq" else f"{float(p):.1f}"
-            net.add_edge(
-                pivot, w,
-                value=float(p),
-                width=width_scale(float(p)),
-                label=edge_label,
-                title=edge_label,
-                font={"size": edge_label_size}
-            )
+    # Mode non syntaxique (fréquence ou log-likelihood)
+    for idx, (w, p) in enumerate(items):
+        couleur = couleurs[idx % len(couleurs)]
+        net.add_node(w, label=w, title=w, value=20, color=couleur)
+        edge_label = f"{int(p)}" if mode_label == "freq" else f"{float(p):.1f}"
+        net.add_edge(
+            pivot, w,
+            value=float(p),
+            width=width_scale(float(p)),
+            label=edge_label,
+            title=edge_label,
+            font={"size": edge_label_size}
+        )
 
     return net.generate_html()
 
 # ================================
-# TABLES EXPLICATIVES ENRICHIES — POS et RELATIONS (spaCy/UD) avec définition FR + exemple
+# TABLE EXPLICATIVE — POS (spaCy/UD) avec définition FR + exemple
 # ================================
 def table_pos_explicative_fr_enrichie() -> pd.DataFrame:
     """POS spaCy/UD : label, définition synthétique (FR), exemple court."""
@@ -382,60 +326,8 @@ def table_pos_explicative_fr_enrichie() -> pd.DataFrame:
     ]
     return pd.DataFrame(data, columns=["POS", "Définition (FR)", "Exemple"])
 
-def table_dep_explicative_fr_enrichie() -> pd.DataFrame:
-    """
-    Relations de dépendance UD/spaCy : label, définition FR fidèle, exemple FR minimal.
-    Les exemples sont schématiques et visent l’intuition.
-    """
-    data = [
-        ("nsubj",      "sujet nominal d’un verbe/adj.",                          "Paris attire des visiteurs → Paris"),
-        ("obj",        "objet direct du verbe",                                  "attire des visiteurs → visiteurs"),
-        ("iobj",       "objet indirect (souvent datif)",                         "parle aux touristes → aux touristes"),
-        ("obl",        "complément oblique/prépositionnel",                      "progresse en été → en été"),
-        ("advmod",     "modifieur adverbial",                                    "augmente fortement → fortement"),
-        ("amod",       "modifieur adjectival du nom",                            "hausse notable → notable"),
-        ("nmod",       "modifieur nominal (nom de nom)",                         "fréquentation de musées → musées"),
-        ("appos",      "apposition",                                             "Paris, capitale française → capitale"),
-        ("det",        "déterminant du nom",                                     "la fréquentation → la"),
-        ("case",       "marqueur casuel/préposition du syntagme nominal",        "de Paris → de"),
-        ("compound",   "élément de mot composé",                                 "Île-de-France → Île-de"),
-        ("fixed",      "locution figée (mots fixes)",                            "afin de, parce que"),
-        ("flat",       "groupe ‘plat’ (noms propres, dates…)",                   "Charles de Gaulle"),
-        ("conj",       "élément coordonné",                                      "tourisme et économie → économie"),
-        ("cc",         "coordinant (et, ou, mais…)",                             "tourisme et économie → et"),
-        ("mark",       "subordonnant introduisant une subordonnée",              "parce que la demande… → parce que"),
-        ("aux",        "auxiliaire (temps, passif…)",                            "a été annoncé → a, été"),
-        ("cop",        "copule (verbe être copule)",                             "Paris est attractif → est"),
-        ("root",       "racine de la phrase",                                    "Noeud central de l’arbre"),
-        ("ccomp",      "complétive à verbe conjugué (objet clausal)",            "il affirme que la hausse continue → que…continue"),
-        ("xcomp",      "complément clausal sans sujet propre (souvent infinitif)", "veut attirer plus → attirer"),
-        ("acl",        "proposition relative/complément verbal du nom",          "touristes visitant Paris → visitant"),
-        ("advcl",      "subordonnée adverbiale (temps, cause, condition…)",      "quand la saison commence"),
-        ("csubj",      "sujet clausal (subordonnée sujet)",                      "qu’augmente la demande surprend"),
-        ("expl",       "explétif",                                               "il y a, il est arrivé que… → il"),
-        ("parataxis",  "parataxe (propositions juxtaposées)",                    "les chiffres montent, bonne nouvelle"),
-        ("orphan",     "orphelin (ellipse, constructions incomplètes)",          "réponses télégraphiques"),
-        ("punct",      "ponctuation",                                            "virgules, points"),
-        ("dep",        "dépendance non classée (divers)",                        "secours pour cas atypiques")
-    ]
-    return pd.DataFrame(data, columns=["Relation", "Définition (FR)", "Exemple"])
-
-
-def table_dep_explicative():
-    """Table des dépendances spaCy/UD les plus fréquentes (onglet Explications)."""
-    data = [
-        ("nsubj", "sujet nominal"), ("obj", "objet direct"), ("iobj", "objet indirect"),
-        ("obl", "complément circonstanciel"), ("amod", "modifieur adjectival"),
-        ("advmod", "modifieur adverbial"), ("nmod", "modifieur nominal"),
-        ("appos", "apposition"), ("det", "déterminant"), ("case", "marqueur casuel"),
-        ("compound", "mot composé"), ("fixed", "expression figée"), ("flat", "locution plate/nom propre"),
-        ("conj", "coordonné"), ("cc", "coordonnant"), ("mark", "subordonnant"),
-        ("aux", "auxiliaire"), ("cop", "copule"), ("root", "racine")
-    ]
-    return pd.DataFrame(data, columns=["Relation spaCy", "Description"])
-
 # ================================
-# CONCORDANCIERS HTML
+# CONCORDANCIER SURFACE (HTML)
 # ================================
 def phrase_surface_html(sent, pivot, cible, stopset, exclure_nombres, exclure_monolettre):
     """Concordancier « phrase surface » : surlignage PIVOT et CIBLE."""
@@ -495,71 +387,13 @@ def document_html_kwic(titre: str, lignes_html):
     )
 
 # ================================
-# CONCORDANCIER SYNTAXIQUE « ALIGNÉ — RELATIONS DU PIVOT »
-# ================================
-def html_relations_pivot_aligne(sent, pivot: str, cible: str = "", afficher_stop: bool = True):
-    """
-    Affiche une phrase en « grille » : mot au-dessus, ETIQUETTE = relation spaCy sous le mot
-    UNIQUEMENT si ce mot est relié directement au pivot (enfant du pivot : child.dep_, ou tête du pivot : pivot.dep_).
-    Le pivot et la cible sont surlignés. Les stopwords peuvent être masqués visuellement.
-    """
-    css = """
-    <style>
-    .ligne-phrase { margin: 8px 0 4px 0; white-space: nowrap; overflow-x: auto; }
-    .grille-tokens { display: inline-flex; gap: 12px; align-items: flex-start; }
-    .token-bloc { display: inline-flex; flex-direction: column; align-items: center; }
-    .mot { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-           font-size: 15px; padding: 2px 4px; border-bottom: 1px solid #bbb; border-radius: 3px; }
-    .etiquette { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-                 font-size: 12px; color: #444; min-height: 1em; }
-    .stop { opacity: 0.45; }
-    .pivot { background: #e63946; color: #fff; }
-    .cible { background: #1d3557; color: #fff; }
-    </style>
-    """
-    pivots = [t for t in sent if normaliser_avec_apostrophe_joint(t.text).lower() == pivot]
-    voisins = {}  # token -> étiquette dep à afficher
-    for p in pivots:
-        for child in p.children:
-            lab = child.dep_
-            if lab:
-                voisins[child] = lab
-        if p.head is not None and p.head != p and p.dep_:
-            voisins[p.head] = p.dep_
-
-    blocs = []
-    for t in sent:
-        if t.is_space or not t.is_alpha:
-            continue
-        if not afficher_stop and t.is_stop:
-            continue
-
-        cls_mark = ""
-        tnorm = normaliser_avec_apostrophe_joint(t.text).lower()
-        if tnorm == pivot:
-            cls_mark = " pivot"
-        elif cible and tnorm == cible:
-            cls_mark = " cible"
-
-        lab = voisins.get(t, "")
-        cls_stop = " stop" if t.is_stop else ""
-
-        blocs.append(
-            f'<div class="token-bloc{cls_stop}">'
-            f'<div class="mot{cls_mark}">{html.escape(t.text)}</div>'
-            f'<div class="etiquette">{html.escape(lab)}</div>'
-            f'</div>'
-        )
-    return css + f'<div class="ligne-phrase"><div class="grille-tokens">{"".join(blocs)}</div></div>'
-
-# ================================
 # INTERFACE — TITRE + EXPLICATIONS
 # ================================
-st.set_page_config(page_title="Cooccurrences — Fréquences, Syntaxiques & Log-likelihood", layout="centered")
-st.markdown("# Cooccurrences autour d’un mot pivot : fréquences, log-likelihood, lexico-syntaxique")
+st.set_page_config(page_title="Cooccurrences — Fréquences & Log-likelihood", layout="centered")
+st.markdown("# Cooccurrences autour d’un mot pivot : fréquences et log-likelihood")
 st.markdown(
-    "Cette application sépare les fréquences brutes, le score de log-likelihood et l’analyse lexico-syntaxique.  \n"
-    "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en mots (±k), en phrase ou en paragraphe.  \n"
+    "Cette application sépare les **fréquences brutes** et le **score de log-likelihood**.  \n"
+    "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en **mots (±k)**, en **phrase** ou en **paragraphe**.  \n"
     "Le mot pivot n’est jamais filtré.  \n"
     "Les stopwords spaCy, les nombres et les mots d’une lettre peuvent être exclus.  \n"
     "Les formes avec apostrophe sont normalisées en conservant la partie à droite.  \n"
@@ -624,11 +458,6 @@ if st.button("Lancer l’analyse"):
                 if w != pivot:
                     freq_counter[w] += 1
 
-    # Syntaxiques (relations directes au pivot)
-    compteur_pairs, index_phrase_pairs = extraire_cooc_syntaxiques_doc(
-        doc, pivot, stopset, exclure_nombres, exclure_monolettre
-    )
-
     # Log-likelihood sur les mêmes fenêtres
     scores, T, F1, F12, F2 = compter_loglike_sur_fenetres(fenetres, pivot)
 
@@ -649,12 +478,6 @@ if st.button("Lancer l’analyse"):
         columns=["cooccurrent", "pos", "loglike", "fenetres_ensemble"]
     ).sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False]).reset_index(drop=True)
 
-    # TABLEAU — Syntaxiques (une ligne par (mot, relation_spacy))
-    df_syn = pd.DataFrame(
-        [(w, pos_tags.get(w, ""), rel, int(c)) for (w, rel), c in sorted(compteur_pairs.items(), key=lambda x: x[1], reverse=True)],
-        columns=["cooccurrent", "pos", "relation_spacy", "frequence"]
-    ).sort_values(["frequence"], ascending=[False]).reset_index(drop=True)
-
     # Concordanciers : listes de phrases
     sent_spans = list(doc.sents)
 
@@ -666,24 +489,14 @@ if st.button("Lancer l’analyse"):
     nb_coocs_uniques_freq = len(df_freq)
     total_coocs_freq = int(df_freq["frequence"].sum())
     nb_coocs_uniques_ll = len(df_ll)
-    nb_coocs_uniques_syn = len(df_syn)
 
-    # Lexique (formes et relations rencontrées)
+    # Lexique (formes observées avec POS)
     pos_map = pos_tags
     df_lex_formes = pd.DataFrame(sorted([(w, pos_map.get(w, "")) for w in pos_map.keys()], key=lambda x: x[0]),
                                  columns=["forme_norm", "pos"])
-    rel_counts = Counter(); exemples = defaultdict(Counter)
-    for (w, rel), c in compteur_pairs.items():
-        rel_counts[rel] += c; exemples[rel][w] += c
-    df_lex_rel = pd.DataFrame(
-        [(rel, int(total), ", ".join([w for w, _ in exemples[rel].most_common(3)]))
-         for rel, total in rel_counts.most_common()],
-        columns=["relation_spacy", "occurrences", "exemples"]
-    )
 
-    # Tables explicatives
+    # Table explicative POS
     df_pos_exp = table_pos_explicative_fr_enrichie()
-    df_dep_exp = table_dep_explicative_fr_enrichie()
 
     # État session
     st.session_state["run_id"] += 1
@@ -691,9 +504,7 @@ if st.button("Lancer l’analyse"):
     st.session_state["pivot"] = pivot
     st.session_state["df_freq"] = df_freq
     st.session_state["df_ll"] = df_ll
-    st.session_state["df_syn"] = df_syn
     st.session_state["sent_spans"] = sent_spans
-    st.session_state["index_phrase_pairs"] = index_phrase_pairs
     st.session_state["stopset"] = stopset
     st.session_state["excl_num"] = exclure_nombres
     st.session_state["excl_1"] = exclure_monolettre
@@ -706,14 +517,9 @@ if st.button("Lancer l’analyse"):
         "nb_coocs_uniques_freq": int(nb_coocs_uniques_freq),
         "total_coocs_freq": int(total_coocs_freq),
         "nb_coocs_uniques_ll": int(nb_coocs_uniques_ll),
-        "nb_coocs_uniques_syn": int(nb_coocs_uniques_syn),
     }
     st.session_state["df_lex_formes"] = df_lex_formes
-    st.session_state["df_lex_rel"] = df_lex_rel
     st.session_state["df_pos_exp"] = df_pos_exp
-    st.session_state["df_dep_exp"] = df_dep_exp
-    st.session_state["df_pos_exp"] = table_pos_explicative_fr_enrichie()
-    st.session_state["df_dep_exp"] = table_dep_explicative_fr_enrichie()
 
 # ================================
 # AFFICHAGE RÉSULTATS + ONGLETS
@@ -733,8 +539,7 @@ if st.session_state.get("analysis_ready", False):
             f"Fenêtres contenant le pivot (F1) : {s['nb_fenetres_avec_pivot']}\n\n"
             f"Cooccurrents uniques (Fréquences) : {s['nb_coocs_uniques_freq']}\n\n"
             f"Total des cooccurrences (Fréquences) : {s['total_coocs_freq']}\n\n"
-            f"Cooccurrents uniques (Log-likelihood) : {s['nb_coocs_uniques_ll']}\n\n"
-            f"Cooccurrents uniques (Syntaxiques) : {s['nb_coocs_uniques_syn']}"
+            f"Cooccurrents uniques (Log-likelihood) : {s['nb_coocs_uniques_ll']}"
         )
 
         pivot_cc = st.session_state["pivot"]
@@ -816,8 +621,6 @@ if st.session_state.get("analysis_ready", False):
             "L’idée est de distinguer deux situations :\n"
             "- les cooccurrences qui apparaissent **par simple hasard**, parce que les mots sont fréquents dans le corpus ;\n"
             "- celles qui apparaissent **beaucoup plus souvent que prévu**, et qui révèlent donc une association significative.\n\n"
-            "Le log-likelihood est donc une mesure qui permet de faire le tri : "
-            "il indique si une cooccurrence est juste due à la fréquence des mots, ou si elle est **anormalement fréquente** et donc révélatrice d’un lien fort.\n\n"
             "En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter."
         )
         df_ll = st.session_state["df_ll"]
@@ -874,65 +677,9 @@ if st.session_state.get("analysis_ready", False):
                     key=f"dl_kwic_ll_{st.session_state['run_id']}"
                 )
 
-        # =====================================
-        # 3) ANALYSE LEXICO-SYNTAXIQUE (tableau, nuage, graphe, concordancier aligné)
-        # =====================================
-        st.markdown("# 3 — Cooccurrences lexico-syntaxiques")
-        st.caption("Une ligne par cooccurrent et par relation spaCy (nsubj, obj, amod, obl, …).")
-        df_syn = st.session_state["df_syn"]
-        st.dataframe(df_syn, use_container_width=True)
-        st.download_button(
-            label="Télécharger le CSV (Syntaxiques)",
-            data=generer_csv(df_syn).getvalue(),
-            file_name="cooccurrences_syntaxiques.csv",
-            mime="text/csv",
-            key=f"dl_csv_syn_{st.session_state['run_id']}"
-        )
-
-        st.markdown("### Nuage de mots — pondéré par la fréquence (syntaxique)")
-        top_n_syn = st.number_input("Top N (syntaxiques)", min_value=1, max_value=500, value=10, step=1, key=f"top_wc_syn_{st.session_state['run_id']}")
-        agg_syn = df_syn.groupby("cooccurrent", as_index=False)["frequence"].sum().sort_values("frequence", ascending=False).head(int(top_n_syn))
-        generer_wordcloud(dict(zip(agg_syn["cooccurrent"], agg_syn["frequence"])), f"Top {int(top_n_syn)} cooccurrences syntaxiques")
-
-        st.markdown("### Graphe interactif — cooccurrences syntaxiques (label = relation spaCy)")
-        n_edges_syn = st.number_input("Nombre d’arêtes (Top-N) – syntaxiques", min_value=1, max_value=200, value=30, step=1, key=f"nedges_syn_{st.session_state['run_id']}")
-        poids_syn = dict(((row["cooccurrent"], row["relation_spacy"]), row["frequence"]) for _, row in df_syn.iterrows())
-        html_syn = pyvis_reseau_html(pivot_cc, poids_syn, "Réseau — Syntaxique", top_n=int(n_edges_syn), syntaxique=True, edge_label_size=11)
-        st_html(html_syn, height=620, scrolling=True)
-
-        st.markdown("### Concordancier Lexico-syntaxique — affichage aligné (relations du pivot)")
-        st.caption("Affiche, sous chaque mot relié DIRECTEMENT au pivot, l’étiquette de dépendance spaCy (nsubj, obj, amod, …). Les autres mots restent sans étiquette.")
-        if not df_syn.empty:
-            cible_syn2 = st.selectbox("Cooccurrent (Syntaxiques, aligné)", sorted(df_syn["cooccurrent"].unique()), index=0, key=f"cc_syn_al_{st.session_state['run_id']}")
-            afficher_stop = st.checkbox("Afficher les stopwords dans la grille", value=True, key=f"show_stop_syn_{st.session_state['run_id']}")
-            nb_max_syn2 = st.number_input("Nombre maximum de phrases (aligné)", min_value=1, max_value=2000, value=200, step=10, key=f"nbmax_syn_al_{st.session_state['run_id']}")
-
-            lignes_html_syn_al = []; n_aff2 = 0
-            for sent, pairs in zip(sent_spans, st.session_state["index_phrase_pairs"]):
-                if any((w == cible_syn2) for (w, rel) in pairs):
-                    lignes_html_syn_al.append(html_relations_pivot_aligne(sent, pivot=pivot_cc, cible=cible_syn2, afficher_stop=afficher_stop))
-                    n_aff2 += 1
-                    if n_aff2 >= int(nb_max_syn2):
-                        break
-            if not lignes_html_syn_al:
-                st.info("Aucune phrase trouvée pour ce cooccurrent syntaxique.")
-            else:
-                st.markdown("\n".join(lignes_html_syn_al), unsafe_allow_html=True)
-                doc_html = document_html_kwic(
-                    f"Concordancier — Syntaxique (aligné relations pivot) — pivot = {pivot_cc}, cooccurrent = {cible_syn2}",
-                    lignes_html_syn_al
-                )
-                st.download_button(
-                    label="Télécharger le concordancier (Syntaxique aligné, HTML)",
-                    data=doc_html.encode("utf-8"),
-                    file_name=f"concordancier_Lexico_syntaxique_{pivot_cc}_{cible_syn2}.html",
-                    mime="text/html",
-                    key=f"dl_kwic_syn_al_{st.session_state['run_id']}"
-                )
-
     with ong_lex:
-        st.markdown("## Lexique des formes et des relations spaCy observées")
-        st.caption("Formes normalisées avec POS ; relations de dépendance rencontrées, avec comptages et exemples issus de votre corpus.")
+        st.markdown("## Lexique des formes observées")
+        st.caption("Formes normalisées rencontrées et leur POS majoritaire dans votre corpus.")
         st.markdown("### Formes (normalisées) et POS")
         st.dataframe(st.session_state["df_lex_formes"], use_container_width=True)
         st.download_button(
@@ -943,24 +690,9 @@ if st.session_state.get("analysis_ready", False):
             key=f"dl_lex_formes_{st.session_state['run_id']}"
         )
 
-        st.markdown("### Relations de dépendance spaCy observées")
-        st.dataframe(st.session_state["df_lex_rel"], use_container_width=True)
-        st.download_button(
-            label="Télécharger le CSV (Relations spaCy)",
-            data=generer_csv(st.session_state["df_lex_rel"]).getvalue(),
-            file_name="lexique_relations_spacy.csv",
-            mime="text/csv",
-            key=f"dl_lex_rel_{st.session_state['run_id']}"
-        )
-
     with ong_exp:
-        st.markdown("## Explications spaCy — POS et relations de dépendance")
-        st.markdown(
-            "Les tableaux suivants récapitulent les **étiquettes POS** et les **relations de dépendance** utilisées par spaCy/UD, avec une définition française fidèle et un exemple minimal.")
-        st.markdown("### POS (catégories morpho-syntaxiques)")
+        st.markdown("## Explications — POS (catégories morpho-syntaxiques)")
         st.dataframe(st.session_state["df_pos_exp"], use_container_width=True)
-        st.markdown("### Relations de dépendance (UD/spaCy)")
-        st.dataframe(st.session_state["df_dep_exp"], use_container_width=True)
 
 else:
     st.info("Lancez l’analyse pour afficher les tableaux, les nuages de mots, les graphes, les concordanciers, le lexique et les explications.")
