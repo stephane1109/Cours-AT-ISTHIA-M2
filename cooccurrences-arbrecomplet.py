@@ -821,7 +821,12 @@ info_filtre = f"(filtré p ≤ {alpha})" if activer_filtre_p else "(sans filtre 
 df_llr.sort_values(["log_likelihood", "frequence"], ascending=[False, False], inplace=True)
 
 st.markdown(f"Table des paires triées par **log-likelihood décroissant** {info_filtre}.")
-st.dataframe(df_llr.head(3000), use_container_width=True)
+df_llr_display = df_llr.copy()
+df_llr_display["p_value"] = df_llr_display["p_value"].apply(
+    lambda p: "< 0.000001" if p < 1e-6 else f"{p:.6f}"
+)
+st.dataframe(df_llr_display.head(3000), use_container_width=True)
+
 st.download_button("Télécharger le CSV (log-likelihood + p-valeur)",
                    data=generer_csv(df_llr).getvalue(),
                    file_name="cooccurrences_likelihood_p.csv",
@@ -874,14 +879,15 @@ st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confon
 
 sections_llr_full = []
 all_lines_llr_preview = []
-pairs_llr_sorted = [((r.mot1, r.mot2), float(r.log_likelihood)) for _, r in df_llr.iterrows()]
+pairs_llr_sorted = [((r.mot1, r.mot2), float(r.log_likelihood), float(r.p_value)) for _, r in df_llr.iterrows()]
 pairs_llr_sorted.sort(key=lambda x: x[1], reverse=True)
 
 if fenetre_saved == "Phrase":
     sent_infos = [(sent, set(iter_tokens_normalises_global(sent, stopset_saved, excl_num_saved, excl_mono_saved)))
                   for sent in doc_saved.sents]
-    for (w1, w2), s in pairs_llr_sorted:
-        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.2f})"
+    for (w1, w2), s, p in pairs_llr_sorted:
+        p_txt = "< 0.000001" if p < 1e-6 else f"{p:.6f}"
+        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.6f}; p={p_txt})"
         lignes = []
         for sent, sset in sent_infos:
             if w1 in sset and w2 in sset:
@@ -892,8 +898,9 @@ if fenetre_saved == "Phrase":
             sections_llr_full.append(f"<h2>{titre_pair}</h2>" + "\n".join(lignes))
 
 elif fenetre_saved == "Mots (±k)":
-    for (w1, w2), s in pairs_llr_sorted:
-        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (LLR={s:.2f})"
+    for (w1, w2), s, p in pairs_llr_sorted:
+        p_txt = "< 0.000001" if p < 1e-6 else f"{p:.6f}"
+        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.6f}; p={p_txt})"
         lignes = kwic_mots_pm_k(doc_saved, stopset_saved, excl_num_saved, excl_mono_saved,
                                 w1=w1, w2=w2, k=int(k_saved), marge=5)
         for h in lignes:
@@ -908,8 +915,9 @@ else:  # Paragraphe
         d = nlp(pa)
         sset = set(iter_tokens_normalises_global(d, stopset_saved, excl_num_saved, excl_mono_saved))
         para_infos.append((pa, sset))
-    for (w1, w2), s in pairs_llr_sorted:
-        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (LLR={s:.2f})"
+    for (w1, w2), s, p in pairs_llr_sorted:
+        p_txt = "< 0.000001" if p < 1e-6 else f"{p:.6f}"
+        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.6f}; p={p_txt})"
         lignes = []
         for pa, sset in para_infos:
             if w1 in sset and w2 in sset:
@@ -932,3 +940,4 @@ else:
                        data=doc_html_llr.encode("utf-8"),
                        file_name="concordancier_likelihood_complet.html",
                        mime="text/html")
+
