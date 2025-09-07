@@ -1,7 +1,7 @@
 ################################################
 # Stéphane Meurisse
 # www.codeandcortex.fr
-# 06 Septembre 2025
+# 28 juillet 2025
 ################################################
 
 # python -m streamlit run main.py
@@ -19,7 +19,6 @@ import re
 import itertools
 import html  # pour html.escape
 import math
-import numpy as np
 import pandas as pd
 import streamlit as st
 from wordcloud import WordCloud
@@ -515,7 +514,7 @@ def pyvis_graphe_likelihood_html(llr_scores: dict, pvals: dict, seuil_llr: float
             taille = _scale_linear(deg[n_], dmin, dmax, 10, 58)
             t = 0.0 if dmax == dmin else (deg[n_] - dmin) / (dmax - dmin)
             col = mcolors.to_hex(cm.viridis(t))
-            net.add_node(n_, label=n_, title=f"{n_} (somme LLR={deg[n_]:.2f})", size=taille, color=col)
+            net.add_node(n_, label=n_, title=f"{n_} (somme Log-likelihood={deg[n_]:.2f})", size=taille, color=col)
 
     for (a, b), s in data.items():
         width = _scale_linear(s, smin, smax, 1.2, 6.5)
@@ -523,7 +522,7 @@ def pyvis_graphe_likelihood_html(llr_scores: dict, pvals: dict, seuil_llr: float
         ecol = mcolors.to_hex(cm.inferno(_scale_linear(s, smin, smax, 0.0, 1.0)))
         net.add_edge(a, b, value=s, width=width, color=ecol,
                      label=f"{s:.2f}",
-                     title=f"LLR={s:.2f} ; p={p:.3g}", font={"size": 10})
+                     title=f"Log-Likelihood={s:.2f} ; p={p:.3g}", font={"size": 10})
 
     return net.generate_html()
 
@@ -531,8 +530,8 @@ def pyvis_graphe_likelihood_html(llr_scores: dict, pvals: dict, seuil_llr: float
 # INTERFACE — PARAMÈTRES ET EXPLICATIONS
 # ================================
 st.set_page_config(page_title="Cooccurrences — Graphe, Likelihood, Nuage, Concordancier")
-st.title("Cooccurrences : graphe, likelihood, nuage pondéré et concordancier")
-st.caption("Stéphane Meurisse — 6/09/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
+st.title("Cooccurrences : graphe, log-likelihood, nuage pondéré et concordancier")
+st.caption("Stéphane Meurisse — 26/07/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
 st.markdown("---")
 
 st.markdown(
@@ -541,7 +540,8 @@ st.markdown(
 )
 st.markdown(
     "Le **filtrage par fréquence N** conserve les paires vues **au moins N fois**. "
-    "Le **LLR = G²** (log-likelihood ratio) évalue la **surprise** de l’association."
+    "**Log-likelihood** : mesure l'écart à l'indépendance entre deux mots. "
+    "La **p-valeur** évalue la significativité (plus petite = plus significatif). "
 )
 
 # ---------- Widgets d'entrée (avec keys stables) ----------
@@ -567,11 +567,11 @@ n_filtre = st.number_input("Fréquence minimale N (au moins N)", min_value=1, ma
 
 # Paramètres likelihood
 st.subheader("Paramètres likelihood")
-seuil_llr_graphe = st.number_input("Seuil minimal LLR pour le graphe (arêtes ≥ seuil)",
+seuil_llr_graphe = st.number_input("Seuil minimal log-likelihood pour le graphe (arêtes ≥ seuil)",
                                    min_value=0.0, max_value=1e9, value=5.0, step=1.0, key="seuil_llr")
 st.markdown(
-    "**LLR = G² (log-likelihood ratio).** Ce réglage est un **filtre supplémentaire** pour le graphe : "
-    "seules les arêtes (paires de mots) dont **G² ≥ seuil** sont dessinées (désencombrement visuel)."
+    "**log-likelihood ratio.** Ce réglage est un **filtre supplémentaire** pour le graphe : "
+    "seules les arêtes (paires de mots) dont **log-likelihood ≥ seuil** sont dessinées (désencombrement visuel)."
 )
 activer_filtre_p = st.checkbox("Activer le filtre par p-valeur", value=True, key="filtre_p")
 alpha = st.number_input("Seuil α (p ≤ α)", min_value=0.0001, max_value=1.0,
@@ -611,7 +611,7 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
     paires_all = compter_cooc_globales(fenetres)                 # toutes les paires observées ≥ 1
     paires_freq = filtrer_par_frequence_au_moins(paires_all, int(n_filtre))  # filtre FREQUENCE seulement
 
-    # LLR + p-valeurs sur TOUTES les paires observées (indépendant du filtre fréquence)
+    # Log-likelihood + p-valeurs sur TOUTES les paires observées (indépendant du filtre fréquence)
     g2_scores, pvals = calculer_llr_et_pval(paires_all, fenetres)
 
     # Fréquences « toutes paires » (sans filtre)
@@ -623,7 +623,7 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
         columns=["mot1", "mot2", "frequence"]
     )
 
-    # DataFrame LLR complet (sans filtre p/LLR)
+    # DataFrame LLR complet (sans filtre p/log-likelihood)
     df_llr_all = pd.DataFrame(
         [(a, b, freq_all.get((a, b), 0), float(g2_scores[(a, b)]), float(pvals[(a, b)]))
          for (a, b) in g2_scores.keys()],
@@ -703,7 +703,6 @@ st.markdown("""
 - **Conséquence** : un mot relié à peu de voisins mais **très fréquent** avec eux peut avoir un nœud plus gros
   qu’un mot relié à de nombreux voisins mais **faiblement**.
 """)
-st.latex(r"\text{degré pondéré}(w)\;=\;\sum_{v} f(w,v)")
 html_global = pyvis_reseau_global_html_couleur(paires_freq, edge_label_size=10)
 st_html(html_global, height=900, scrolling=True)
 st.download_button("Télécharger le graphe (HTML)",
@@ -807,11 +806,11 @@ else:
                        mime="text/html")
 
 # ---------- LIKELIHOOD ----------
-st.subheader("Approche par log-likelihood (Dunning)")
+st.subheader("Approche par log-likelihood")
 st.markdown(
     "Le **log-likelihood** teste l’indépendance des deux mots par fenêtre. "
-    "On calcule pour chaque paire la statistique \(G^2\) et sa **p-valeur** (Chi2 à 1 ddl). "
-    "Vous pouvez **filtrer par p ≤ α** et par **seuil LLR** pour le graphe et le nuage."
+    "Pour chaque paire, on calcule la statistique de **log-likelihood** et sa **p-valeur** "
+    "Vous pouvez **filtrer par p ≤ α** ci-dessous."
 )
 
 # Filtre p-valeur
@@ -823,12 +822,12 @@ df_llr.sort_values(["log_likelihood", "frequence"], ascending=[False, False], in
 
 st.markdown(f"Table des paires triées par **log-likelihood décroissant** {info_filtre}.")
 st.dataframe(df_llr.head(3000), use_container_width=True)
-st.download_button("Télécharger le CSV (LLR + p-valeur)",
+st.download_button("Télécharger le CSV (log-likelihood + p-valeur)",
                    data=generer_csv(df_llr).getvalue(),
                    file_name="cooccurrences_likelihood_p.csv",
                    mime="text/csv")
 
-# Graphe LLR (respecte p et seuil LLR)
+# Graphe Log-likelihood (respecte p et seuil log-likelihood)
 llr_for_graph = {(r.mot1, r.mot2): float(r.log_likelihood) for _, r in df_llr.iterrows()}
 p_for_graph   = {(r.mot1, r.mot2): float(r.p_value)        for _, r in df_llr.iterrows()}
 alpha_used = float(alpha) if activer_filtre_p else None
@@ -842,32 +841,36 @@ st.download_button("Télécharger le graphe likelihood (HTML)",
                    file_name="graphe_likelihood.html",
                    mime="text/html")
 
-# === Nouveau : Nuage des cooccurrences (log-likelihood, non filtré LLR/p) ===
+# === Nuage des cooccurrences (log-likelihood, non filtré) ===
 st.subheader("Nuage des cooccurrences (log-likelihood)")
-st.markdown("Chaque \"mot\" est une **paire** `mot1_mot2`. Poids = **G²** (log-likelihood ratio). "
-            "**Aucun filtre LLR/p n'est appliqué** au nuage ; on affiche le Top-K des paires par G².")
+st.markdown(
+    'Chaque "mot" du nuage correspond à une **paire** `mot1_mot2`. '
+    'Poids = **log-likelihood**. '
+    "Aucun **seuil log-likelihood** ni **filtre p-value** n'est appliqué à ce nuage ; "
+    "on affiche le **Top-K** des paires par score du log-likelihood."
+)
 
 pairs_llr_for_cloud = {f"{a}_{b}": float(g2_scores[(a, b)]) for (a, b) in g2_scores.keys()}
 pairs_llr_for_cloud = {k: v for k, v in pairs_llr_for_cloud.items() if v > 0}
 
 if pairs_llr_for_cloud:
     items_pairs_llr = sorted(pairs_llr_for_cloud.items(), key=lambda x: x[1], reverse=True)[:int(top_k_llr_cloud)]
-    generer_nuage_mots(dict(items_pairs_llr), f"Top {int(top_k_llr_cloud)} — cooccurrences par G² (non filtré)")
-    st.session_state["nuage_png_pairs_llr"] = st.session_state.get("nuage_png")
-    if st.session_state.get("nuage_png_pairs_llr"):
+    generer_nuage_mots(dict(items_pairs_llr), f"Top {int(top_k_llr_cloud)} — cooccurrences par loglikelihood (non filtré)")
+    st.session_state["nuage_png_pairs_loglikelihood"] = st.session_state.get("nuage_png")
+    if st.session_state.get("nuage_png_pairs_loglikelihood"):
         st.download_button(
-            label="Télécharger le nuage cooccurrences (G²) — PNG",
-            data=st.session_state["nuage_png_pairs_llr"],
+            label="Télécharger le nuage cooccurrences (log-likelihood) — PNG",
+            data=st.session_state["nuage_png_pairs_loglikelihood"],
             file_name="nuage_cooccurrences_paires_loglikelihood.png",
             mime="image/png"
         )
 else:
-    st.info("Nuage non généré : tous les G² sont nuls.")
+    st.info("Nuage non généré : tous les log-likelihood sont nuls.")
 
 
 # ---------- CONCORDANCIER (LLR) ----------
 st.subheader("Concordancier — meilleures associations (log-likelihood)")
-st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues), triées par **G²**.")
+st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues), triées par **log-likelihood**.")
 
 sections_llr_full = []
 all_lines_llr_preview = []
@@ -878,7 +881,7 @@ if fenetre_saved == "Phrase":
     sent_infos = [(sent, set(iter_tokens_normalises_global(sent, stopset_saved, excl_num_saved, excl_mono_saved)))
                   for sent in doc_saved.sents]
     for (w1, w2), s in pairs_llr_sorted:
-        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (LLR={s:.2f})"
+        titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.2f})"
         lignes = []
         for sent, sset in sent_infos:
             if w1 in sset and w2 in sset:
