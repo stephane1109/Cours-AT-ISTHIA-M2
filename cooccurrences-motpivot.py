@@ -1,12 +1,13 @@
 ################################################
 # Stéphane Meurisse
 # www.codeandcortex.fr
-# 06 Septembre 2025
+# Version beta 1.0
+# Date : 26-072025
 ################################################
 
 # python -m streamlit run main.py
 
-# ########## Dépendances
+# ##########
 # pip install streamlit pandas matplotlib worldcloud pyvis scipy
 # python -m spacy download fr_core_news_md
 ############
@@ -406,8 +407,10 @@ def document_html_kwic(titre: str, lignes_html):
 # ================================
 st.set_page_config(page_title="Cooccurrences — Fréquences & Log-likelihood", layout="centered")
 st.markdown("# Cooccurrences autour d’un mot pivot : fréquences et log-likelihood")
+st.caption("Stéphane Meurisse — Version beta 1.0 - 27/08/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
+st.markdown("---")
 st.markdown(
-    "Cette application analyse les cooccurrences selon leurs **fréquences brutes** et le **score de log-likelihood**.\n\n"
+    "Cette application analyse les cooccurrences autour d'un mot pivot selon leurs **fréquences brutes** et le **score de log-likelihood**.\n\n"
     "Les fenêtres pour les fréquences et le log-likelihood peuvent être définies en **mots (±k)**, en **phrase** ou en **paragraphe**.\n\n"
     "Le mot pivot n’est jamais filtré. Les stopwords (spaCy), les nombres et les mots d’une lettre peuvent être exclus. "
     "Les formes avec apostrophe sont normalisées en conservant la partie à droite."
@@ -584,10 +587,21 @@ if st.session_state.get("analysis_ready", False):
             key=f"dl_csv_freq_{st.session_state['run_id']}"
         )
 
-        st.markdown("### Nuage de mots — pondéré par la fréquence")
-        top_n_freq = st.number_input("Top N (fréquences)", min_value=1, max_value=500, value=10, step=1, key=f"top_wc_freq_{st.session_state['run_id']}")
-        df_top_freq = df_freq[df_freq["frequence"] > 0].sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False]).head(int(top_n_freq))
-        generer_wordcloud(dict(zip(df_top_freq["cooccurrent"], df_top_freq["frequence"])), f"Top {int(top_n_freq)} cooccurrences (fréquence)")
+        st.markdown("### Nuage de cooccurrences — pondéré par la fréquence")
+        st.caption(
+            "Chaque élément du nuage est une paire `pivot_voisin` ; poids = nombre de fenêtres où les deux co-apparaissent.")
+        top_n_freq = st.number_input(
+            "Top N (fréquences)", min_value=1, max_value=500, value=10, step=1,
+            key=f"top_wc_freq_{st.session_state['run_id']}"
+        )
+        df_top_freq = (
+            st.session_state["df_freq"][st.session_state["df_freq"]["frequence"] > 0]
+            .sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False])
+            .head(int(top_n_freq))
+        )
+        wc_freq_data = {f"{pivot_cc}_{w}": int(freq)
+                        for w, freq in zip(df_top_freq["cooccurrent"], df_top_freq["frequence"])}
+        generer_wordcloud(wc_freq_data, f"Top {int(top_n_freq)} cooccurrences (fréquence)")
 
         st.markdown("### Graphe interactif — cooccurrences (fréquence)")
         n_edges_freq = st.number_input("Nombre d’arêtes (Top-N) – fréquence", min_value=1, max_value=200, value=30, step=1, key=f"nedges_freq_{st.session_state['run_id']}")
@@ -653,13 +667,25 @@ if st.session_state.get("analysis_ready", False):
             key=f"dl_csv_ll_{st.session_state['run_id']}"
         )
 
-        st.markdown("### Nuage de mots — pondéré par le score log-likelihood")
-        top_n_ll = st.number_input("Top N (log-likelihood)", min_value=1, max_value=500, value=10, step=1, key=f"top_wc_ll_{st.session_state['run_id']}")
-        df_top_ll = df_ll[df_ll["loglike"] > 0].sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False]).head(int(top_n_ll))
+        st.markdown("### Nuage de cooccurrences — pondéré par le score de log-likelihood")
+        st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = score de log-likelihood.")
+        top_n_ll = st.number_input(
+            "Top N (log-likelihood)", min_value=1, max_value=500, value=10, step=1,
+            key=f"top_wc_ll_{st.session_state['run_id']}"
+        )
+        # On part de df_ll (déjà filtré par p si la case est cochée)
+        df_top_ll = (
+            df_ll[df_ll["loglike"] > 0]
+            .sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False])
+            .head(int(top_n_ll))
+        )
         if df_top_ll.empty:
             st.info("Aucun élément à afficher dans le nuage (vérifiez le filtrage p ou la taille du corpus).")
         else:
-            generer_wordcloud(dict(zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])), f"Top {int(top_n_ll)} cooccurrences (log-likelihood)")
+            # libellés = 'pivot_voisin' pour voir explicitement la cooccurrence
+            wc_ll_data = {f"{pivot_cc}_{w}": float(s)
+                          for w, s in zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])}
+            generer_wordcloud(wc_ll_data, f"Top {int(top_n_ll)} cooccurrences (log-likelihood)")
 
         st.markdown("### Graphe interactif — cooccurrences (log-likelihood)")
         n_edges_ll = st.number_input("Nombre d’arêtes (Top-N) – log-likelihood", min_value=1, max_value=200, value=30, step=1, key=f"nedges_ll_{st.session_state['run_id']}")
