@@ -1,4 +1,4 @@
-# Scrapinge de wikipedia avec l'API
+# Scraping de wikipedia avec l'API
 
 import requests
 import re
