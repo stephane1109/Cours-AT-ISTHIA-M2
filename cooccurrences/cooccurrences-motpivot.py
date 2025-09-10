@@ -1,8 +1,8 @@
 ################################################
 # Stéphane Meurisse
 # www.codeandcortex.fr
-# Version beta 1.0
-# Date : 26-072025
+# Version beta 1.1
+# Date : 27-07-2025
 ################################################
 
 # python -m streamlit run main.py
@@ -12,35 +12,29 @@
 # python -m spacy download fr_core_news_md
 ############
 
-# Application Streamlit : Analyse des Cooccurrences par :
+# Application Streamlit : Analyse des Cooccurrences par à partir d'un mot pivot
 #     - 1. Fréquences
 #     - 2. log-likelihood
 
-# (1) analyse
 
-# (2) Log-likelihood : mesurer la force des cooccurrences
+# Log-likelihood : mesure la force des cooccurrences
 # Le log-likelihood est une mesure statistique qui sert à tester l’indépendance entre deux mots.
-# L’idée est de distinguer deux situations :
-#       - les cooccurrences qui apparaissent par simple hasard, parce que les mots sont fréquents dans le corpus ;
-#       - celles qui apparaissent beaucoup plus souvent que prévu, et qui révèlent donc une association significative.
-# Le log-likelihood est donc une mesure qui permet de faire le tri :
-# il indique si une cooccurrence est juste due à la fréquence des mots, ou si elle est anormalement fréquente et donc révélatrice d’un lien fort.
-# En pratique, plus le score est élevé, plus l’association entre les deux mots est intéressante à interpréter.
 
 # L'application utilise le modèle medium de SPACY pour traiter les stopsword, les Pos-tag...
 
-# - Affichage des résultats : 1) Fréquences, 2) Log-likelihood
+# - Affichage des résultats par document : 1) Fréquences, 2) Log-likelihood
 
-# - Paramètres sous le texte, pas de barre latérale.
-# - Résultats en dessous (onglets Résultats, Lexique, Explications).
-# - 3 modes de fenêtres au choix : Mots (±k), Phrase (ponctuation), Paragraphe (retour à la ligne).
+# - Choix des paramètres
+# - Résultats en dessous (onglets Résultats, (Lexique, Explications = NON DEVELOPPé)).
+# - 3 fenêtres au choix : Mots (±k), Phrase (ponctuation), Paragraphe (retour à la ligne).
+# - 1 mode document : analyse séparement chaque fichier avec la fenetre "phrase"
 # - Stopwords : option spaCy (sans ajout manuel). Nettoyage optionnel des nombres et des mots d’1 lettre.
 # - Apostrophes : « c’est » -> « est », « l’homme » -> « homme »
 # - le mot pivot n’est jamais filtré.
-# - POS affichées dans les tableaux de cooccurrents. Log-likelihood via SciPy sur les mêmes fenêtres que les fréquences.
-# - Concordanciers : Fréquences et Log-likelihood (phrases surface), Syntaxique aligné (relations du pivot uniquement).
-# - Tout est téléchargeables en HTML autonome.
-# - Graphes PyVis : Fréquence (label = fréquence), Loglike (label = G²)
+# - POS affichées dans les tableaux de cooccurrents.
+# - Concordanciers : Fréquences et Log-likelihood.
+# - Tout est téléchargeables en HTML, csv. png
+# - Graphes PyVis : Fréquence Log-likelihood
 
 # ================================
 # IMPORTS
@@ -72,6 +66,20 @@ except Exception:
         "Installez-le avec :\n"
         "pip install -U spacy && python -m spacy download fr_core_news_md"
     )
+
+# ================================
+# IMPORTANT !!!!
+# ================================
+# fenetre phrase : sentencizer règle-basé qui PREND LA MAIN sur doc.sents
+# Règle de segmentation en phrases, basée sur la ponctuation forte.
+# Par défaut spaCy coupe sur ".", "!", "?" ; on ajoute "…" et on force le remplacement.
+nlp.add_pipe(
+    "sentencizer",
+    config={
+        "punct_chars": [".", "!", "?", "…"],
+        "overwrite": True
+    }
+)
 
 # ================================
 # STOPWORDS
@@ -406,8 +414,8 @@ def document_html_kwic(titre: str, lignes_html):
 # INTERFACE — TITRE + EXPLICATIONS
 # ================================
 st.set_page_config(page_title="Cooccurrences — Fréquences & Log-likelihood", layout="centered")
-st.markdown("# Cooccurrences autour d’un mot pivot : fréquences et log-likelihood")
-st.caption("Stéphane Meurisse — Version beta 1.0 - 27/08/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
+st.markdown("<h1 style='color:#e63946'>Cooccurrences autour d’un mot pivot : fréquences et log-likelihood</h1>", unsafe_allow_html=True)
+st.caption("Stéphane Meurisse — Version beta 1.1 - 27/07/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
 st.markdown("---")
 st.markdown(
     "Cette application analyse les cooccurrences autour d'un mot pivot selon leurs **fréquences brutes** et le **score de log-likelihood**.\n\n"
@@ -419,12 +427,15 @@ st.markdown(
 # ================================
 # PARAMÈTRES D’ANALYSE
 # ================================
-uploaded = st.file_uploader("Fichier texte (.txt)", type=["txt"])
+# Important : pour permettre l'analyse multi-documents sans changer les textes d'interface,
+# on autorise toujours le dépôt multiple ; en mode classique, les fichiers seront concaténés.
+uploaded = st.file_uploader("Fichier texte (.txt)", type=["txt"], accept_multiple_files=True)
 texte_libre = st.text_area("Ou collez votre texte ici", height=220)
 
-st.markdown("## Paramètres d’analyse")
+st.markdown("<h2 style='color:#e63946'>Paramètres d’analyse</h2>", unsafe_allow_html=True)
 pivot = st.text_input("Mot pivot (obligatoire)", value="soleil").strip().lower()
-fenetre = st.selectbox("Fenêtre de contexte pour Fréquences et Log-likelihood", ["Mots (±k)", "Phrase", "Paragraphe"])
+# Ajout du mode "Document" dans la liste, sans modifier les textes explicatifs plus haut.
+fenetre = st.selectbox("Fenêtre de contexte pour Fréquences et Log-likelihood", ["Mots (±k)", "Phrase", "Paragraphe", "Document"])
 k = 5
 if fenetre == "Mots (±k)":
     k = st.number_input("Taille de la fenêtre k (mots de contexte)", min_value=1, max_value=100, value=5, step=1)
@@ -440,32 +451,28 @@ if "analysis_ready" not in st.session_state:
     st.session_state["analysis_ready"] = False
 
 # ================================
-# ANALYSE
+# FONCTION D'ANALYSE D'UN TEXTE UNIQUE (réutilisée pour chaque document)
 # ================================
-if st.button("Lancer l’analyse"):
-    if not pivot:
-        st.error("Veuillez saisir un mot pivot."); st.stop()
-
-    texte = uploaded.read().decode("utf-8", errors="ignore") if uploaded else texte_libre
-    if not texte or not texte.strip():
-        st.error("Veuillez fournir un texte."); st.stop()
-
-    stopset = construire_stopwords(appliquer_stop)
+def analyser_un_texte(texte: str, fenetre_mode: str, pivot: str, stopset, exclure_nombres: bool, exclure_monolettre: bool, k: int = 5):
+    """Analyse complète sur un texte unique, retourne tous les éléments nécessaires à l'affichage."""
     doc = nlp(texte)
 
-    # Fenêtres linéaires
-    if fenetre == "Mots (±k)":
+    if fenetre_mode == "Mots (±k)":
         fenetres, seq_doc = fenetres_mots(doc, pivot, k, stopset, exclure_nombres, exclure_monolettre)
         total_mots_norm = len(seq_doc)
-    elif fenetre == "Phrase":
+    elif fenetre_mode == "Phrase":
         fenetres = fenetres_phrases(doc, stopset, pivot, exclure_nombres, exclure_monolettre)
         total_mots_norm = sum(len(iter_tokens_normalises(s, stopset, pivot, exclure_nombres, exclure_monolettre)) for s in doc.sents)
-    else:
+    elif fenetre_mode == "Paragraphe":
         fenetres = fenetres_paragraphes(texte, stopset, pivot, exclure_nombres, exclure_monolettre)
         total_mots_norm = 0
         for pa in segmenter_paragraphes(texte):
             dpa = nlp(pa)
             total_mots_norm += len(iter_tokens_normalises(dpa, stopset, pivot, exclure_nombres, exclure_monolettre))
+    else:
+        # En mode Document pour un document pris isolément, on adopte des fenêtres = phrases
+        fenetres = fenetres_phrases(doc, stopset, pivot, exclure_nombres, exclure_monolettre)
+        total_mots_norm = sum(len(iter_tokens_normalises(s, stopset, pivot, exclure_nombres, exclure_monolettre)) for s in doc.sents)
 
     # Fréquences pivot-centrées (1 par fenêtre où le pivot et w co-apparaissent)
     freq_counter = Counter()
@@ -498,7 +505,7 @@ if st.button("Lancer l’analyse"):
     # Concordanciers : listes de phrases
     sent_spans = list(doc.sents)
 
-    # Statistiques globales
+    # Statistiques
     nb_phrases = len(sent_spans)
     nb_paragraphes = len(segmenter_paragraphes(texte))
     nb_fenetres = T
@@ -507,36 +514,159 @@ if st.button("Lancer l’analyse"):
     total_coocs_freq = int(df_freq["frequence"].sum())
     nb_coocs_uniques_ll = len(df_ll)
 
-    # Lexique (formes observées avec POS)
-    pos_map = pos_tags
-    df_lex_formes = pd.DataFrame(sorted([(w, pos_map.get(w, "")) for w in pos_map.keys()], key=lambda x: x[0]),
-                                 columns=["forme_norm", "pos"])
-
-    # Table explicative POS
-    df_pos_exp = table_pos_explicative_fr_enrichie()
-
-    # État session
-    st.session_state["run_id"] += 1
-    st.session_state["analysis_ready"] = True
-    st.session_state["pivot"] = pivot
-    st.session_state["df_freq"] = df_freq
-    st.session_state["df_ll_full"] = df_ll  # version complète avant filtrage
-    st.session_state["sent_spans"] = sent_spans
-    st.session_state["stopset"] = stopset
-    st.session_state["excl_num"] = exclure_nombres
-    st.session_state["excl_1"] = exclure_monolettre
-    st.session_state["stats"] = {
-        "total_mots_norm": int(total_mots_norm),
-        "nb_phrases": int(nb_phrases),
-        "nb_paragraphes": int(nb_paragraphes),
-        "nb_fenetres": int(nb_fenetres),
-        "nb_fenetres_avec_pivot": int(nb_fenetres_avec_pivot),
-        "nb_coocs_uniques_freq": int(nb_coocs_uniques_freq),
-        "total_coocs_freq": int(total_coocs_freq),
-        "nb_coocs_uniques_ll": int(nb_coocs_uniques_ll),
+    return {
+        "doc": doc,
+        "sent_spans": sent_spans,
+        "df_freq": df_freq,
+        "df_ll": df_ll,
+        "pos_tags": pos_tags,
+        "stats": {
+            "total_mots_norm": int(total_mots_norm),
+            "nb_phrases": int(nb_phrases),
+            "nb_paragraphes": int(nb_paragraphes),
+            "nb_fenetres": int(nb_fenetres),
+            "nb_fenetres_avec_pivot": int(nb_fenetres_avec_pivot),
+            "nb_coocs_uniques_freq": int(nb_coocs_uniques_freq),
+            "total_coocs_freq": int(total_coocs_freq),
+            "nb_coocs_uniques_ll": int(nb_coocs_uniques_ll),
+        },
+        "fenetres": fenetres  # pour agrégation éventuelle
     }
-    st.session_state["df_lex_formes"] = df_lex_formes
-    st.session_state["df_pos_exp"] = df_pos_exp
+
+# ================================
+# ANALYSE
+# ================================
+if st.button("Lancer l’analyse"):
+    if not pivot:
+        st.error("Veuillez saisir un mot pivot."); st.stop()
+
+    stopset = construire_stopwords(appliquer_stop)
+
+    # Gestion des fichiers/texte
+    textes_list = []
+    noms_list = []
+
+    if uploaded:
+        # uploaded peut être une liste (multi-fichiers) ou un seul élément
+        if isinstance(uploaded, list):
+            for f in uploaded:
+                try:
+                    contenu = f.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    contenu = f.read().decode("latin-1", errors="ignore")
+                if contenu and contenu.strip():
+                    textes_list.append(contenu)
+                    noms_list.append(f.name)
+        else:
+            try:
+                contenu = uploaded.read().decode("utf-8", errors="ignore")
+            except Exception:
+                contenu = uploaded.read().decode("latin-1", errors="ignore")
+            if contenu and contenu.strip():
+                textes_list.append(contenu)
+                noms_list.append(uploaded.name)
+
+    if not textes_list and texte_libre and texte_libre.strip():
+        textes_list.append(texte_libre)
+        noms_list.append("texte_libre.txt")
+
+    if fenetre == "Document":
+        if not textes_list:
+            st.error("Mode Document : déposez au moins un fichier .txt ou collez un texte."); st.stop()
+
+        resultats_docs = []
+        # Analyse indépendante de chaque document (fenêtres internes choisies comme dans analyser_un_texte)
+        for nom, txt in zip(noms_list, textes_list):
+            res = analyser_un_texte(txt, "Document", pivot, stopset, exclure_nombres, exclure_monolettre, k)
+            res["nom"] = nom
+            res["texte"] = txt
+            resultats_docs.append(res)
+
+        # Agrégation simple pour les statistiques globales
+        total_mots_norm = sum(r["stats"]["total_mots_norm"] for r in resultats_docs)
+        nb_phrases = sum(r["stats"]["nb_phrases"] for r in resultats_docs)
+        nb_paragraphes = sum(r["stats"]["nb_paragraphes"] for r in resultats_docs)
+
+        # Agrégation des fenêtres pour un aperçu global (concaténation des fenêtres de chaque doc)
+        fenetres_globales = []
+        for r in resultats_docs:
+            fenetres_globales.extend(r["fenetres"])
+
+        # Comptage global pour renseigner les chiffres de synthèse
+        scores_g, pvals_g, T_g, F1_g, F12_g, F2_g = compter_loglike_sur_fenetres(fenetres_globales, pivot)
+        freq_counter_g = Counter()
+        for S in fenetres_globales:
+            if pivot in S:
+                for w in S:
+                    if w != pivot:
+                        freq_counter_g[w] += 1
+
+        df_freq_g = pd.DataFrame(
+            [(w, int(freq_counter_g[w]), int(F12_g.get(w, 0))) for w in sorted(freq_counter_g.keys())],
+            columns=["cooccurrent", "frequence", "fenetres_ensemble"]
+        )
+        df_ll_g = pd.DataFrame(
+            [(w, float(scores_g[w]), float(pvals_g[w]), int(F12_g.get(w, 0))) for w in sorted([x for x in scores_g.keys() if x != pivot])],
+            columns=["cooccurrent", "loglike", "p_value", "fenetres_ensemble"]
+        )
+
+        nb_coocs_uniques_freq = int(len(df_freq_g))
+        total_coocs_freq = int(df_freq_g["frequence"].sum()) if not df_freq_g.empty else 0
+        nb_coocs_uniques_ll = int(len(df_ll_g))
+
+        # Lexique global
+        pos_map_global = etiqueter_pos_corpus(textes_list, stopset, pivot, exclure_nombres, exclure_monolettre)
+        df_lex_formes = pd.DataFrame(sorted([(w, pos_map_global.get(w, "")) for w in pos_map_global.keys()], key=lambda x: x[0]),
+                                     columns=["forme_norm", "pos"])
+        df_pos_exp = table_pos_explicative_fr_enrichie()
+
+        st.session_state["run_id"] += 1
+        st.session_state["analysis_ready"] = True
+        st.session_state["mode_document"] = True
+        st.session_state["fenetre_mode"] = "Document"  # <— mémorise le mode pour l’affichage des titres
+        st.session_state["pivot"] = pivot
+        st.session_state["docs"] = resultats_docs
+        st.session_state["stopset"] = stopset
+        st.session_state["excl_num"] = exclure_nombres
+        st.session_state["excl_1"] = exclure_monolettre
+        st.session_state["df_lex_formes"] = df_lex_formes
+        st.session_state["df_pos_exp"] = df_pos_exp
+        st.session_state["stats"] = {
+            "nb_documents": int(len(resultats_docs)),
+            "total_mots_norm": int(total_mots_norm),
+            "nb_phrases": int(nb_phrases),
+            "nb_paragraphes": int(nb_paragraphes),
+            "nb_fenetres": int(T_g),
+            "nb_fenetres_avec_pivot": int(F1_g),
+            "nb_coocs_uniques_freq": int(nb_coocs_uniques_freq),
+            "total_coocs_freq": int(total_coocs_freq),
+            "nb_coocs_uniques_ll": int(nb_coocs_uniques_ll),
+        }
+
+    else:
+        # Modes Mots/Phrase/Paragraphe : si plusieurs fichiers sont déposés, ils sont concaténés
+        if not textes_list:
+            st.error("Veuillez fournir un texte."); st.stop()
+        texte_unique = "\n\n".join(textes_list)
+
+        res = analyser_un_texte(texte_unique, fenetre, pivot, stopset, exclure_nombres, exclure_monolettre, k)
+
+        st.session_state["run_id"] += 1
+        st.session_state["analysis_ready"] = True
+        st.session_state["mode_document"] = False
+        st.session_state["fenetre_mode"] = fenetre  # <— mémorise le mode pour l’affichage des titres
+        st.session_state["pivot"] = pivot
+        st.session_state["df_freq"] = res["df_freq"]
+        st.session_state["df_ll_full"] = res["df_ll"]
+        st.session_state["sent_spans"] = res["sent_spans"]
+        st.session_state["stopset"] = stopset
+        st.session_state["excl_num"] = exclure_nombres
+        st.session_state["excl_1"] = exclure_monolettre
+        st.session_state["stats"] = res["stats"]
+        pos_map = res["pos_tags"]
+        st.session_state["df_lex_formes"] = pd.DataFrame(sorted([(w, pos_map.get(w, "")) for w in pos_map.keys()], key=lambda x: x[0]),
+                                                         columns=["forme_norm", "pos"])
+        st.session_state["df_pos_exp"] = table_pos_explicative_fr_enrichie()
 
 # ================================
 # AFFICHAGE RÉSULTATS + ONGLETS
@@ -546,8 +676,14 @@ if st.session_state.get("analysis_ready", False):
     ong_res, ong_lex, ong_exp = st.tabs(["Résultats", "Lexique", "Explications"])
 
     with ong_res:
-        st.markdown("## Statistiques de l’analyse")
+        mode_label = "Document" if st.session_state.get("mode_document", False) else st.session_state.get("fenetre_mode", "")
+        st.markdown(f"<h2 style='color:#e63946'>Statistiques de l’analyse — Mode : {mode_label}</h2>", unsafe_allow_html=True)
         s = st.session_state["stats"]
+
+        # Afficher le nombre de documents uniquement en mode Document
+        if st.session_state.get("mode_document", False):
+            st.write(f"Nombre de documents : {s.get('nb_documents', len(st.session_state.get('docs', [])))}\n\n")
+
         st.write(
             f"Nombre de mots normalisés conservés : {s['total_mots_norm']}\n\n"
             f"Nombre de phrases : {s['nb_phrases']}\n\n"
@@ -560,173 +696,413 @@ if st.session_state.get("analysis_ready", False):
         )
 
         pivot_cc = st.session_state["pivot"]
-        sent_spans = st.session_state["sent_spans"]
         stopset_cc = st.session_state["stopset"]
         excl_num = st.session_state["excl_num"]
         excl_1 = st.session_state["excl_1"]
 
-        # =====================================
-        # 1) FRÉQUENCES (tableau, nuage, graphe, concordancier)
-        # =====================================
-        st.markdown("# 1 — Fréquences à partir du mot pivot")
-        st.markdown(
-            "Ici, on analyse simplement les **cooccurrences récurrentes**, c’est-à-dire les mots qui apparaissent souvent "
-            "dans le même contexte que le pivot.\n\n"
-            "Plus la fréquence est élevée, plus cela indique que ces mots sont régulièrement associés dans le texte.\n\n"
-            "Cette approche ne dit pas si l’association est due au hasard ou non : elle permet surtout d’observer "
-            "les répétitions les plus visibles dans un corpus."
-        )
-        st.caption("frequence = nombre de fenêtres où pivot et mot co-apparaissent ; fenetres_ensemble = nombre de fenêtres contenant simultanément pivot et mot.")
-        df_freq = st.session_state["df_freq"]
-        st.dataframe(df_freq, use_container_width=True)
-        st.download_button(
-            label="Télécharger le CSV (Fréquences)",
-            data=generer_csv(df_freq).getvalue(),
-            file_name="cooccurrences_frequences.csv",
-            mime="text/csv",
-            key=f"dl_csv_freq_{st.session_state['run_id']}"
-        )
+        if st.session_state.get("mode_document", False):
+            # Affichage répété pour chaque document, avec les mêmes textes/sections
+            for i, docres in enumerate(st.session_state["docs"], start=1):
+                st.markdown(f"<h3 style='color:#e63946'>Document {i} — {docres['nom']} — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                sent_spans = docres["sent_spans"]
 
-        st.markdown("### Nuage de cooccurrences — pondéré par la fréquence")
-        st.caption(
-            "Chaque élément du nuage est une paire `pivot_voisin` ; poids = nombre de fenêtres où les deux co-apparaissent.")
-        top_n_freq = st.number_input(
-            "Top N (fréquences)", min_value=1, max_value=500, value=10, step=1,
-            key=f"top_wc_freq_{st.session_state['run_id']}"
-        )
-        df_top_freq = (
-            st.session_state["df_freq"][st.session_state["df_freq"]["frequence"] > 0]
-            .sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False])
-            .head(int(top_n_freq))
-        )
-        wc_freq_data = {f"{pivot_cc}_{w}": int(freq)
-                        for w, freq in zip(df_top_freq["cooccurrent"], df_top_freq["frequence"])}
-        generer_wordcloud(wc_freq_data, f"Top {int(top_n_freq)} cooccurrences (fréquence)")
-
-        st.markdown("### Graphe interactif — cooccurrences (fréquence)")
-        n_edges_freq = st.number_input("Nombre d’arêtes (Top-N) – fréquence", min_value=1, max_value=200, value=30, step=1, key=f"nedges_freq_{st.session_state['run_id']}")
-        poids_freq = dict(zip(df_freq["cooccurrent"], df_freq["frequence"]))
-        html_freq = pyvis_reseau_html(pivot_cc, poids_freq, "Réseau — Fréquence", top_n=int(n_edges_freq), syntaxique=False, mode_label="freq", edge_label_size=11)
-        st_html(html_freq, height=620, scrolling=True)
-
-        st.markdown("### Concordancier — à partir des fréquences")
-        coocs_list_freq = list(df_freq["cooccurrent"])
-        if coocs_list_freq:
-            cible_freq = st.selectbox("Cooccurrent (Fréquences)", coocs_list_freq, index=0, key=f"cc_freq_{st.session_state['run_id']}")
-            nb_max_freq = st.number_input("Nombre maximum de phrases", min_value=1, max_value=5000, value=200, step=10, key=f"nbmax_freq_{st.session_state['run_id']}")
-            lignes_html_freq = []; n_aff = 0
-            for sent in sent_spans:
-                nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
-                sset = set(nlist)
-                if pivot_cc in sset and cible_freq in sset:
-                    lignes_html_freq.append(phrase_surface_html(sent, pivot_cc, cible_freq, stopset_cc, excl_num, excl_1))
-                    n_aff += 1
-                    if n_aff >= int(nb_max_freq):
-                        break
-            if not lignes_html_freq:
-                st.info("Aucune phrase trouvée pour ce cooccurrent.")
-            else:
-                st.markdown("\n".join(lignes_html_freq), unsafe_allow_html=True)
-                doc_html = document_html_kwic(
-                    f"Concordancier — Fréquences — pivot = {pivot_cc}, cooccurrent = {cible_freq}",
-                    lignes_html_freq
+                st.markdown(f"<h2 style='color:#e63946'>1 — Fréquences à partir du mot pivot — Mode : {mode_label}</h1>", unsafe_allow_html=True)
+                st.markdown(
+                    "Ici, on analyse simplement les **cooccurrences récurrentes**, c’est-à-dire les mots qui apparaissent souvent "
+                    "dans le même contexte que le pivot.\n\n"
+                    "Plus la fréquence est élevée, plus cela indique que ces mots sont régulièrement associés dans le texte.\n\n"
+                    "Cette approche ne dit pas si l’association est due au hasard ou non : elle permet surtout d’observer "
+                    "les répétitions les plus visibles dans un corpus."
                 )
+                st.caption("frequence = nombre de fenêtres où pivot et mot co-apparaissent ; fenetres_ensemble = nombre de fenêtres contenant simultanément pivot et mot.")
+
+                df_freq_doc = docres["df_freq"]
+                st.dataframe(df_freq_doc, use_container_width=True)
                 st.download_button(
-                    label="Télécharger le concordancier (Fréquences, HTML)",
-                    data=doc_html.encode("utf-8"),
-                    file_name=f"concordancier_frequences_{pivot_cc}_{cible_freq}.html",
-                    mime="text/html",
-                    key=f"dl_kwic_freq_{st.session_state['run_id']}"
+                    label=f"Télécharger le CSV (Fréquences — {docres['nom']})",
+                    data=generer_csv(df_freq_doc).getvalue(),
+                    file_name=f"cooccurrences_frequences_{re.sub(r'[^A-Za-z0-9_.-]+','_', docres['nom'])}.csv",
+                    mime="text/csv",
+                    key=f"dl_csv_freq_{st.session_state['run_id']}_{i}"
                 )
 
-        # =====================================
-        # 2) LOG-LIKELIHOOD (filtrage p-valeur + tableaux/nuage/graphe/concordancier)
-        # =====================================
-        st.markdown("# 2 — Scores log-likelihood")
-        st.caption("Score calculé sur les mêmes fenêtres que les fréquences.")
-        st.markdown(
-            "Le log-likelihood sert à tester l’indépendance entre deux mots. Plus le score est élevé et la p-valeur faible, "
-            "plus l’association est statistiquement probante."
-        )
-
-        # Bouton de filtrage par p-valeur
-        activer_filtre_p = st.checkbox("Afficher uniquement les paires significatives (p < 0,05)", value=False, key=f"filtre_p_{st.session_state['run_id']}")
-
-        df_ll_full = st.session_state["df_ll_full"].copy()
-        if activer_filtre_p:
-            df_ll = df_ll_full[df_ll_full["p_value"] < 0.05].reset_index(drop=True)
-        else:
-            df_ll = df_ll_full
-
-        st.dataframe(df_ll, use_container_width=True)
-        st.download_button(
-            label="Télécharger le CSV (Log-likelihood — affiché)",
-            data=generer_csv(df_ll).getvalue(),
-            file_name="cooccurrences_loglike_affiche.csv",
-            mime="text/csv",
-            key=f"dl_csv_ll_{st.session_state['run_id']}"
-        )
-
-        st.markdown("### Nuage de cooccurrences — pondéré par le score de log-likelihood")
-        st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = score de log-likelihood.")
-        top_n_ll = st.number_input(
-            "Top N (log-likelihood)", min_value=1, max_value=500, value=10, step=1,
-            key=f"top_wc_ll_{st.session_state['run_id']}"
-        )
-        # On part de df_ll (déjà filtré par p si la case est cochée)
-        df_top_ll = (
-            df_ll[df_ll["loglike"] > 0]
-            .sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False])
-            .head(int(top_n_ll))
-        )
-        if df_top_ll.empty:
-            st.info("Aucun élément à afficher dans le nuage (vérifiez le filtrage p ou la taille du corpus).")
-        else:
-            # libellés = 'pivot_voisin' pour voir explicitement la cooccurrence
-            wc_ll_data = {f"{pivot_cc}_{w}": float(s)
-                          for w, s in zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])}
-            generer_wordcloud(wc_ll_data, f"Top {int(top_n_ll)} cooccurrences (log-likelihood)")
-
-        st.markdown("### Graphe interactif — cooccurrences (log-likelihood)")
-        n_edges_ll = st.number_input("Nombre d’arêtes (Top-N) – log-likelihood", min_value=1, max_value=200, value=30, step=1, key=f"nedges_ll_{st.session_state['run_id']}")
-        poids_ll = dict(zip(df_ll["cooccurrent"], df_ll["loglike"]))
-        html_ll = pyvis_reseau_html(pivot_cc, poids_ll, "Réseau — Log-likelihood (G²)", top_n=int(n_edges_ll), syntaxique=False, mode_label="ll", edge_label_size=9)
-        st_html(html_ll, height=620, scrolling=True)
-
-        st.markdown("### Concordancier — à partir du log-likelihood")
-        coocs_list_ll = list(df_ll["cooccurrent"])
-        if coocs_list_ll:
-            cible_ll = st.selectbox("Cooccurrent (Log-likelihood)", coocs_list_ll, index=0, key=f"cc_ll_{st.session_state['run_id']}")
-            nb_max_ll = st.number_input("Nombre maximum de phrases", min_value=1, max_value=5000, value=200, step=10, key=f"nbmax_ll_{st.session_state['run_id']}")
-            lignes_html_ll = []; n_aff = 0
-            for sent in sent_spans:
-                nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
-                sset = set(nlist)
-                if pivot_cc in sset and cible_ll in sset:
-                    lignes_html_ll.append(phrase_surface_html(sent, pivot_cc, cible_ll, stopset_cc, excl_num, excl_1))
-                    n_aff += 1
-                    if n_aff >= int(nb_max_ll):
-                        break
-            if not lignes_html_ll:
-                st.info("Aucune phrase trouvée pour ce cooccurrent (log-likelihood).")
-            else:
-                st.markdown("\n".join(lignes_html_ll), unsafe_allow_html=True)
-                doc_html = document_html_kwic(
-                    f"Concordancier — Log-likelihood — pivot = {pivot_cc}, cooccurrent = {cible_ll}",
-                    lignes_html_ll
+                st.markdown(f"<h3 style='color:#e63946'>Nuage de cooccurrences — pondéré par la fréquence — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = nombre de fenêtres où les deux co-apparaissent.")
+                top_n_freq = st.number_input(
+                    f"Top N (fréquences) — {docres['nom']}", min_value=1, max_value=500, value=10, step=1,
+                    key=f"top_wc_freq_{st.session_state['run_id']}_{i}"
                 )
+                df_top_freq = (
+                    df_freq_doc[df_freq_doc["frequence"] > 0]
+                    .sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False])
+                    .head(int(top_n_freq))
+                )
+                wc_freq_data = {f"{pivot_cc}_{w}": int(freq)
+                                for w, freq in zip(df_top_freq["cooccurrent"], df_top_freq["frequence"])}
+                generer_wordcloud(wc_freq_data, f"{docres['nom']} — Top {int(top_n_freq)} cooccurrences (fréquence)")
+
+                # --- téléchargement du nuage en PNG (fréquences, par document)
+                wc_png = io.BytesIO()
+                from wordcloud import WordCloud
+
+                fig_wc = plt.figure(figsize=(10, 5))
+                wc_obj = WordCloud(width=900, height=450, background_color="white").generate_from_frequencies(
+                    {k: float(v) for k, v in wc_freq_data.items() if float(v) > 0}
+                )
+                plt.imshow(wc_obj, interpolation="bilinear");
+                plt.axis("off")
+                plt.title(f"{docres['nom']} — Top {int(top_n_freq)} cooccurrences (fréquence)")
+                fig_wc.savefig(wc_png, format="png", dpi=180, bbox_inches="tight")
+                plt.close(fig_wc)
+                wc_png.seek(0)
                 st.download_button(
-                    label="Télécharger le concordancier (Log-likelihood, HTML)",
-                    data=doc_html.encode("utf-8"),
-                    file_name=f"concordancier_loglike_{pivot_cc}_{cible_ll}.html",
-                    mime="text/html",
-                    key=f"dl_kwic_ll_{st.session_state['run_id']}"
+                    label=f"Télécharger le nuage (PNG) — {docres['nom']}",
+                    data=wc_png,
+                    file_name=f"nuage_frequence_{re.sub(r'[^A-Za-z0-9_.-]+', '_', docres['nom'])}_top{int(top_n_freq)}.png",
+                    mime="image/png",
+                    key=f"dl_wc_freq_png_{st.session_state['run_id']}_{i}"
                 )
+
+                st.markdown(f"<h3 style='color:#e63946'>Graphe interactif — cooccurrences (fréquence) — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                n_edges_freq = st.number_input(
+                    f"Nombre d’arêtes (Top-N) – fréquence — {docres['nom']}",
+                    min_value=1, max_value=200, value=30, step=1, key=f"nedges_freq_{st.session_state['run_id']}_{i}"
+                )
+                poids_freq = dict(zip(df_freq_doc["cooccurrent"], df_freq_doc["frequence"]))
+                html_freq = pyvis_reseau_html(pivot_cc, poids_freq, f"Réseau — Fréquence — {docres['nom']}", top_n=int(n_edges_freq), syntaxique=False, mode_label="freq", edge_label_size=11)
+                st_html(html_freq, height=620, scrolling=True)
+
+                st.markdown(f"<h3 style='color:#e63946'>Concordancier — à partir des fréquences — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                coocs_list_freq = list(df_freq_doc["cooccurrent"])
+                if coocs_list_freq:
+                    cible_freq = st.selectbox(
+                        f"Cooccurrent (Fréquences) — {docres['nom']}",
+                        coocs_list_freq, index=0, key=f"cc_freq_{st.session_state['run_id']}_{i}"
+                    )
+                    nb_max_freq = st.number_input(
+                        f"Nombre maximum de phrases — {docres['nom']}",
+                        min_value=1, max_value=5000, value=200, step=10, key=f"nbmax_freq_{st.session_state['run_id']}_{i}"
+                    )
+                    lignes_html_freq = []; n_aff = 0
+                    for sent in sent_spans:
+                        nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
+                        sset = set(nlist)
+                        if pivot_cc in sset and cible_freq in sset:
+                            lignes_html_freq.append(phrase_surface_html(sent, pivot_cc, cible_freq, stopset_cc, excl_num, excl_1))
+                            n_aff += 1
+                            if n_aff >= int(nb_max_freq):
+                                break
+                    if not lignes_html_freq:
+                        st.info("Aucune phrase trouvée pour ce cooccurrent.")
+                    else:
+                        st.markdown("\n".join(lignes_html_freq), unsafe_allow_html=True)
+                        doc_html = document_html_kwic(
+                            f"Concordancier — Fréquences — {docres['nom']} — pivot = {pivot_cc}, cooccurrent = {cible_freq}",
+                            lignes_html_freq
+                        )
+                        # --- espace avant le bouton de téléchargement du concordancier
+                        st.markdown("<br/>", unsafe_allow_html=True)
+                        st.download_button(
+                            label=f"Télécharger le concordancier (Fréquences, HTML — {docres['nom']})",
+                            data=doc_html.encode("utf-8"),
+                            file_name=f"concordancier_frequences_{re.sub(r'[^A-Za-z0-9_.-]+','_', docres['nom'])}_{pivot_cc}_{cible_freq}.html",
+                            mime="text/html",
+                            key=f"dl_kwic_freq_{st.session_state['run_id']}_{i}"
+                        )
+
+                st.markdown(f"<h2 style='color:#e63946'>2 — Scores log-likelihood — Mode : {mode_label}</h1>", unsafe_allow_html=True)
+                st.caption("Score calculé sur les mêmes fenêtres que les fréquences.")
+                st.markdown(
+                    "Le log-likelihood sert à tester l’indépendance entre deux mots. Plus le score est élevé et la p-valeur faible, "
+                    "plus l’association est statistiquement probante."
+                )
+
+                df_ll_doc_full = docres["df_ll"].copy()
+                activer_filtre_p = st.checkbox(
+                    f"Afficher uniquement les paires significatives (p < 0,05) — {docres['nom']}",
+                    value=False, key=f"filtre_p_{st.session_state['run_id']}_{i}"
+                )
+                if activer_filtre_p:
+                    df_ll_doc = df_ll_doc_full[df_ll_doc_full["p_value"] < 0.05].reset_index(drop=True)
+                else:
+                    df_ll_doc = df_ll_doc_full
+
+                st.dataframe(df_ll_doc, use_container_width=True)
+                st.download_button(
+                    label=f"Télécharger le CSV (Log-likelihood — affiché — {docres['nom']})",
+                    data=generer_csv(df_ll_doc).getvalue(),
+                    file_name=f"cooccurrences_loglike_affiche_{re.sub(r'[^A-Za-z0-9_.-]+','_', docres['nom'])}.csv",
+                    mime="text/csv",
+                    key=f"dl_csv_ll_{st.session_state['run_id']}_{i}"
+                )
+
+                st.markdown(f"<h3 style='color:#e63946'>Nuage de cooccurrences — pondéré par le score de log-likelihood — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = score de log-likelihood.")
+                top_n_ll = st.number_input(
+                    f"Top N (log-likelihood) — {docres['nom']}", min_value=1, max_value=500, value=10, step=1,
+                    key=f"top_wc_ll_{st.session_state['run_id']}_{i}"
+                )
+                df_top_ll = (
+                    df_ll_doc[df_ll_doc["loglike"] > 0]
+                    .sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False])
+                    .head(int(top_n_ll))
+                )
+                if df_top_ll.empty:
+                    st.info("Aucun élément à afficher dans le nuage (vérifiez le filtrage p ou la taille du corpus).")
+                else:
+                    wc_ll_data = {f"{pivot_cc}_{w}": float(s)
+                                  for w, s in zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])}
+                    generer_wordcloud(wc_ll_data, f"{docres['nom']} — Top {int(top_n_ll)} cooccurrences (log-likelihood)")
+
+                st.markdown(f"<h3 style='color:#e63946'>Graphe interactif — cooccurrences (log-likelihood) — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                n_edges_ll = st.number_input(
+                    f"Nombre d’arêtes (Top-N) – log-likelihood — {docres['nom']}",
+                    min_value=1, max_value=200, value=30, step=1,
+                    key=f"nedges_ll_{st.session_state['run_id']}_{i}"
+                )
+                poids_ll = dict(zip(df_ll_doc["cooccurrent"], df_ll_doc["loglike"]))
+                html_ll = pyvis_reseau_html(pivot_cc, poids_ll, f"Réseau — Log-likelihood (G²) — {docres['nom']}", top_n=int(n_edges_ll), syntaxique=False, mode_label="ll", edge_label_size=9)
+                st_html(html_ll, height=620, scrolling=True)
+
+                # --- export HTML du graphe log-likelihood (par document)
+                st.download_button(
+                    label=f"Exporter le graphe log-likelihood (HTML) — {docres['nom']}",
+                    data=html_ll.encode("utf-8"),
+                    file_name=f"reseau_loglike_{re.sub(r'[^A-Za-z0-9_.-]+', '_', docres['nom'])}.html",
+                    mime="text/html",
+                    key=f"dl_graph_ll_html_{st.session_state['run_id']}_{i}"
+                )
+
+                st.markdown(f"<h3 style='color:#e63946'>Concordancier — à partir du log-likelihood — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+                coocs_list_ll = list(df_ll_doc["cooccurrent"])
+                if coocs_list_ll:
+                    cible_ll = st.selectbox(
+                        f"Cooccurrent (Log-likelihood) — {docres['nom']}",
+                        coocs_list_ll, index=0, key=f"cc_ll_{st.session_state['run_id']}_{i}"
+                    )
+                    nb_max_ll = st.number_input(
+                        f"Nombre maximum de phrases — {docres['nom']}",
+                        min_value=1, max_value=5000, value=200, step=10,
+                        key=f"nbmax_ll_{st.session_state['run_id']}_{i}"
+                    )
+                    lignes_html_ll = []; n_aff = 0
+                    for sent in sent_spans:
+                        nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
+                        sset = set(nlist)
+                        if pivot_cc in sset and cible_ll in sset:
+                            lignes_html_ll.append(phrase_surface_html(sent, pivot_cc, cible_ll, stopset_cc, excl_num, excl_1))
+                            n_aff += 1
+                            if n_aff >= int(nb_max_ll):
+                                break
+                    if not lignes_html_ll:
+                        st.info("Aucune phrase trouvée pour ce cooccurrent (log-likelihood).")
+                    else:
+                        st.markdown("\n".join(lignes_html_ll), unsafe_allow_html=True)
+                        doc_html = document_html_kwic(
+                            f"Concordancier — Log-likelihood — {docres['nom']} — pivot = {pivot_cc}, cooccurrent = {cible_ll}",
+                            lignes_html_ll
+                        )
+                        # --- espace avant le bouton de téléchargement du concordancier
+                        st.markdown("<br/>", unsafe_allow_html=True)
+                        st.download_button(
+                            label=f"Télécharger le concordancier (Log-likelihood, HTML — {docres['nom']})",
+                            data=doc_html.encode("utf-8"),
+                            file_name=f"concordancier_loglike_{re.sub(r'[^A-Za-z0-9_.-]+','_', docres['nom'])}_{pivot_cc}_{cible_ll}.html",
+                            mime="text/html",
+                            key=f"dl_kwic_ll_{st.session_state['run_id']}_{i}"
+                        )
+
+        else:
+            # =====================================
+            # Mode classique : on réutilise exactement l’affichage précédent
+            # =====================================
+            sent_spans = st.session_state["sent_spans"]
+            mode_label = st.session_state.get("fenetre_mode", "")
+
+            st.markdown(f"<h1 style='color:#e63946'>1 — Fréquences à partir du mot pivot — Mode : {mode_label}</h1>", unsafe_allow_html=True)
+            st.markdown(
+                "Ici, on analyse simplement les **cooccurrences récurrentes**, c’est-à-dire les mots qui apparaissent souvent "
+                "dans le même contexte que le pivot.\n\n"
+                "Plus la fréquence est élevée, plus cela indique que ces mots sont régulièrement associés dans le texte.\n\n"
+                "Cette approche ne dit pas si l’association est due au hasard ou non : elle permet surtout d’observer "
+                "les répétitions les plus visibles dans un corpus."
+            )
+            st.caption("frequence = nombre de fenêtres où pivot et mot co-apparaissent ; fenetres_ensemble = nombre de fenêtres contenant simultanément pivot et mot.")
+            df_freq = st.session_state["df_freq"]
+            st.dataframe(df_freq, use_container_width=True)
+            st.download_button(
+                label="Télécharger le CSV (Fréquences)",
+                data=generer_csv(df_freq).getvalue(),
+                file_name="cooccurrences_frequences.csv",
+                mime="text/csv",
+                key=f"dl_csv_freq_{st.session_state['run_id']}"
+            )
+
+            st.markdown(f"<h3 style='color:#e63946'>Nuage de cooccurrences — pondéré par la fréquence — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = nombre de fenêtres où les deux co-apparaissent.")
+            top_n_freq = st.number_input(
+                "Top N (fréquences)", min_value=1, max_value=500, value=10, step=1,
+                key=f"top_wc_freq_{st.session_state['run_id']}"
+            )
+            df_top_freq = (
+                st.session_state["df_freq"][st.session_state["df_freq"]["frequence"] > 0]
+                .sort_values(["frequence", "fenetres_ensemble"], ascending=[False, False])
+                .head(int(top_n_freq))
+            )
+            wc_freq_data = {f"{pivot_cc}_{w}": int(freq)
+                            for w, freq in zip(df_top_freq["cooccurrent"], df_top_freq["frequence"])}
+            generer_wordcloud(wc_freq_data, f"Top {int(top_n_freq)} cooccurrences (fréquence)")
+
+            # --- téléchargement du nuage en PNG (fréquences, mode classique)
+            wc_png = io.BytesIO()
+            fig_wc = plt.figure(figsize=(10, 5))
+            wc_obj = WordCloud(width=900, height=450, background_color="white").generate_from_frequencies(
+                {k: float(v) for k, v in wc_freq_data.items() if float(v) > 0}
+            )
+            plt.imshow(wc_obj, interpolation="bilinear");
+            plt.axis("off")
+            plt.title(f"Top {int(top_n_freq)} cooccurrences (fréquence)")
+            fig_wc.savefig(wc_png, format="png", dpi=180, bbox_inches="tight")
+            plt.close(fig_wc)
+            wc_png.seek(0)
+            st.download_button(
+                label="Télécharger le nuage (PNG)",
+                data=wc_png,
+                file_name=f"nuage_frequence_top{int(top_n_freq)}.png",
+                mime="image/png",
+                key=f"dl_wc_freq_png_{st.session_state['run_id']}"
+            )
+
+            st.markdown(f"<h3 style='color:#e63946'>Graphe interactif — cooccurrences (fréquence) — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            n_edges_freq = st.number_input("Nombre d’arêtes (Top-N) – fréquence", min_value=1, max_value=200, value=30, step=1, key=f"nedges_freq_{st.session_state['run_id']}")
+            poids_freq = dict(zip(df_freq["cooccurrent"], df_freq["frequence"]))
+            html_freq = pyvis_reseau_html(pivot_cc, poids_freq, "Réseau — Fréquence", top_n=int(n_edges_freq), syntaxique=False, mode_label="freq", edge_label_size=11)
+            st_html(html_freq, height=620, scrolling=True)
+
+            st.markdown(f"<h3 style='color:#e63946'>Concordancier — à partir des fréquences — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            coocs_list_freq = list(df_freq["cooccurrent"])
+            if coocs_list_freq:
+                cible_freq = st.selectbox("Cooccurrent (Fréquences)", coocs_list_freq, index=0, key=f"cc_freq_{st.session_state['run_id']}")
+                nb_max_freq = st.number_input("Nombre maximum de phrases", min_value=1, max_value=5000, value=200, step=10, key=f"nbmax_freq_{st.session_state['run_id']}")
+                lignes_html_freq = []; n_aff = 0
+                for sent in sent_spans:
+                    nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
+                    sset = set(nlist)
+                    if pivot_cc in sset and cible_freq in sset:
+                        lignes_html_freq.append(phrase_surface_html(sent, pivot_cc, cible_freq, stopset_cc, excl_num, excl_1))
+                        n_aff += 1
+                        if n_aff >= int(nb_max_freq):
+                            break
+                if not lignes_html_freq:
+                    st.info("Aucune phrase trouvée pour ce cooccurrent.")
+                else:
+                    st.markdown("\n".join(lignes_html_freq), unsafe_allow_html=True)
+                    doc_html = document_html_kwic(
+                        f"Concordancier — Fréquences — pivot = {pivot_cc}, cooccurrent = {cible_freq}",
+                        lignes_html_freq
+                    )
+                    # --- espace avant le bouton de téléchargement du concordancier
+                    st.markdown("<br/>", unsafe_allow_html=True)
+                    st.download_button(
+                        label="Télécharger le concordancier (Fréquences, HTML)",
+                        data=doc_html.encode("utf-8"),
+                        file_name=f"concordancier_frequences_{pivot_cc}_{cible_freq}.html",
+                        mime="text/html",
+                        key=f"dl_kwic_freq_{st.session_state['run_id']}"
+                    )
+
+            st.markdown(f"<h1 style='color:#e63946'>2 — Scores log-likelihood — Mode : {mode_label}</h1>", unsafe_allow_html=True)
+            st.caption("Score calculé sur les mêmes fenêtres que les fréquences.")
+            st.markdown(
+                "Le log-likelihood sert à tester l’indépendance entre deux mots. Plus le score est élevé et la p-valeur faible, "
+                "plus l’association est statistiquement probante."
+            )
+
+            activer_filtre_p = st.checkbox("Afficher uniquement les paires significatives (p < 0,05)", value=False, key=f"filtre_p_{st.session_state['run_id']}")
+            df_ll_full = st.session_state["df_ll_full"].copy()
+            if activer_filtre_p:
+                df_ll = df_ll_full[df_ll_full["p_value"] < 0.05].reset_index(drop=True)
+            else:
+                df_ll = df_ll_full
+
+            st.dataframe(df_ll, use_container_width=True)
+            st.download_button(
+                label="Télécharger le CSV (Log-likelihood — affiché)",
+                data=generer_csv(df_ll).getvalue(),
+                file_name="cooccurrences_loglike_affiche.csv",
+                mime="text/csv",
+                key=f"dl_csv_ll_{st.session_state['run_id']}"
+            )
+
+            st.markdown(f"<h3 style='color:#e63946'>Nuage de cooccurrences — pondéré par le score de log-likelihood — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            st.caption("Chaque élément du nuage est une paire `pivot_voisin` ; poids = score de log-likelihood.")
+            top_n_ll = st.number_input(
+                "Top N (log-likelihood)", min_value=1, max_value=500, value=10, step=1,
+                key=f"top_wc_ll_{st.session_state['run_id']}"
+            )
+            df_top_ll = (
+                df_ll[df_ll["loglike"] > 0]
+                .sort_values(["loglike", "fenetres_ensemble"], ascending=[False, False])
+                .head(int(top_n_ll))
+            )
+            if df_top_ll.empty:
+                st.info("Aucun élément à afficher dans le nuage (vérifiez le filtrage p ou la taille du corpus).")
+            else:
+                wc_ll_data = {f"{pivot_cc}_{w}": float(s)
+                              for w, s in zip(df_top_ll["cooccurrent"], df_top_ll["loglike"])}
+                generer_wordcloud(wc_ll_data, f"Top {int(top_n_ll)} cooccurrences (log-likelihood)")
+
+            st.markdown(f"<h3 style='color:#e63946'>Graphe interactif — cooccurrences (log-likelihood) — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            n_edges_ll = st.number_input("Nombre d’arêtes (Top-N) – log-likelihood", min_value=1, max_value=200, value=30, step=1, key=f"nedges_ll_{st.session_state['run_id']}")
+            poids_ll = dict(zip(df_ll["cooccurrent"], df_ll["loglike"]))
+            html_ll = pyvis_reseau_html(pivot_cc, poids_ll, "Réseau — Log-likelihood", top_n=int(n_edges_ll), syntaxique=False, mode_label="ll", edge_label_size=9)
+            st_html(html_ll, height=620, scrolling=True)
+
+            # --- export HTML du graphe log-likelihood (mode classique)
+            st.download_button(
+                label="Exporter le graphe log-likelihood (HTML)",
+                data=html_ll.encode("utf-8"),
+                file_name="reseau_loglike.html",
+                mime="text/html",
+                key=f"dl_graph_ll_html_{st.session_state['run_id']}"
+            )
+
+            st.markdown(f"<h3 style='color:#e63946'>Concordancier — à partir du log-likelihood — Mode : {mode_label}</h3>", unsafe_allow_html=True)
+            coocs_list_ll = list(df_ll["cooccurrent"])
+            if coocs_list_ll:
+                cible_ll = st.selectbox("Cooccurrent (Log-likelihood)", coocs_list_ll, index=0, key=f"cc_ll_{st.session_state['run_id']}")
+                nb_max_ll = st.number_input("Nombre maximum de phrases", min_value=1, max_value=5000, value=200, step=10, key=f"nbmax_ll_{st.session_state['run_id']}")
+                lignes_html_ll = []; n_aff = 0
+                for sent in sent_spans:
+                    nlist = iter_tokens_normalises(sent, stopset_cc, pivot_cc, excl_num, excl_1)
+                    sset = set(nlist)
+                    if pivot_cc in sset and cible_ll in sset:
+                        lignes_html_ll.append(phrase_surface_html(sent, pivot_cc, cible_ll, stopset_cc, excl_num, excl_1))
+                        n_aff += 1
+                        if n_aff >= int(nb_max_ll):
+                            break
+                if not lignes_html_ll:
+                    st.info("Aucune phrase trouvée pour ce cooccurrent (log-likelihood).")
+                else:
+                    st.markdown("\n".join(lignes_html_ll), unsafe_allow_html=True)
+                    doc_html = document_html_kwic(
+                        f"Concordancier — Log-likelihood — pivot = {pivot_cc}, cooccurrent = {cible_ll}",
+                        lignes_html_ll
+                    )
+                    # --- espace avant le bouton de téléchargement du concordancier
+                    st.markdown("<br/>", unsafe_allow_html=True)
+                    st.download_button(
+                        label="Télécharger le concordancier (Log-likelihood, HTML)",
+                        data=doc_html.encode("utf-8"),
+                        file_name=f"concordancier_loglike_{pivot_cc}_{cible_ll}.html",
+                        mime="text/html",
+                        key=f"dl_kwic_ll_{st.session_state['run_id']}"
+                    )
 
     with ong_lex:
-        st.markdown("## Lexique des formes observées")
+        st.markdown("<h2 style='color:#e63946'>Lexique des formes observées</h2>", unsafe_allow_html=True)
         st.caption("Formes normalisées rencontrées et leur POS majoritaire dans votre corpus.")
-        st.markdown("### Formes (normalisées) et POS")
+        st.markdown("<h3 style='color:#e63946'>Formes (normalisées) et POS</h3>", unsafe_allow_html=True)
         st.dataframe(st.session_state["df_lex_formes"], use_container_width=True)
         st.download_button(
             label="Télécharger le CSV (Formes & POS)",
@@ -737,8 +1113,9 @@ if st.session_state.get("analysis_ready", False):
         )
 
     with ong_exp:
-        st.markdown("## Explications — POS (catégories morpho-syntaxiques)")
+        st.markdown("<h2 style='color:#e63946'>Explications — POS (catégories morpho-syntaxiques)</h2>", unsafe_allow_html=True)
         st.dataframe(st.session_state["df_pos_exp"], use_container_width=True)
 
 else:
     st.info("Lancez l’analyse pour afficher les tableaux, les nuages de mots, les graphes, les concordanciers, le lexique et les explications.")
+
