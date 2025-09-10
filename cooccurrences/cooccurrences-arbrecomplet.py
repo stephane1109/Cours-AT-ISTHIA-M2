@@ -12,6 +12,9 @@
 # python -m spacy download fr_core_news_md
 ############
 
+# ================================
+# IMPORTS
+# ================================
 import itertools
 import html  # pour html.escape
 import math
@@ -24,6 +27,7 @@ from pyvis.network import Network
 from streamlit.components.v1 import html as st_html
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.colors as mcolors  # <-- IMPORT AJOUTÉ
 from scipy.stats import chi2  # pour la p-valeur du test (df=1)
 from collections import Counter
 import io
@@ -41,11 +45,7 @@ except Exception:
         "pip install -U spacy && python -m spacy download fr_core_news_md"
     )
 
-# ================================
-# IMPORTANT !!!!
-# ================================
-# ==== IMPORTANT : Sentencizer personnalisé (ponctuation . ! ? …) ====
-# On ajoute un sentencizer simple pour garantir doc.sents si le parser/senter n'est pas disponible.
+# ==== Sentencizer pour garantir doc.sents ====
 if "senter" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
     nlp.add_pipe("sentencizer", config={"punct_chars": [".", "!", "?", "…"]})
 
@@ -53,14 +53,12 @@ if "senter" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
 # STOPWORDS
 # ================================
 def construire_stopwords(appliquer_stop: bool):
-    """renvoie l’ensemble des stopwords spaCy si coché, sinon ensemble vide"""
     return set(nlp.Defaults.stop_words) if appliquer_stop else set()
 
 # ================================
 # SEGMENTATION PARAGRAPHES
 # ================================
 def segmenter_paragraphes(texte: str):
-    """paragraphe = bloc séparé par au moins une ligne vide"""
     norm = texte.replace("\r\n", "\n").replace("\r", "\n")
     blocs = re.split(r"\n\s*\n+", norm)
     return [b.strip() for b in blocs if b.strip()]
@@ -71,7 +69,6 @@ def segmenter_paragraphes(texte: str):
 APOS = {"'", "’"}
 
 def normaliser_apostrophe_joint(token_text: str) -> str:
-    """si le token contient une apostrophe, garder la partie à droite (ex. « l'homme » -> « homme »)"""
     if "'" in token_text or "’" in token_text:
         parts = re.split(r"[’']", token_text, maxsplit=1)
         if len(parts) == 2:
@@ -79,11 +76,6 @@ def normaliser_apostrophe_joint(token_text: str) -> str:
     return token_text
 
 def iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """
-    renvoie deux listes alignées :
-      - norm_list : formes normalisées pour l’analyse globale,
-      - spans_list : paires (start_idx, end_excl) en indices de tokens spaCy.
-    """
     norm_list, spans_list = [], []
     toks = list(doc)
     i, n = 0, len(toks)
@@ -92,7 +84,6 @@ def iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres: bool, exclur
         raw = tok.text
         low = raw.lower()
 
-        # cas "c ' est" -> garder la partie de droite
         if low.isalpha() and i + 2 < n and toks[i+1].text in APOS:
             droite = toks[i+2].text.lower()
             mot = droite
@@ -102,7 +93,6 @@ def iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres: bool, exclur
             i += 3
             continue
 
-        # cas "l'homme" -> "homme"
         if ("'" in raw) or ("’" in raw):
             mot = normaliser_apostrophe_joint(raw).lower()
         else:
@@ -116,7 +106,6 @@ def iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres: bool, exclur
     return norm_list, spans_list
 
 def iter_tokens_normalises_global(doc, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """renvoie seulement la séquence normalisée globale"""
     norm, _ = iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres, exclure_monolettre)
     return norm
 
@@ -124,7 +113,6 @@ def iter_tokens_normalises_global(doc, stopset, exclure_nombres: bool, exclure_m
 # FENÊTRES GLOBALES (SANS PIVOT)
 # ================================
 def fenetres_globales_mots(doc, k: int, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """fenêtres glissantes ±k sur la séquence normalisée (sans pivot)"""
     seq = iter_tokens_normalises_global(doc, stopset, exclure_nombres, exclure_monolettre)
     fenetres = []
     for i in range(len(seq)):
@@ -135,7 +123,6 @@ def fenetres_globales_mots(doc, k: int, stopset, exclure_nombres: bool, exclure_
     return fenetres
 
 def fenetres_globales_phrases(doc, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """fenêtres = phrases spaCy (global, sans pivot)"""
     fenetres = []
     for sent in doc.sents:
         seq = iter_tokens_normalises_global(sent, stopset, exclure_nombres, exclure_monolettre)
@@ -144,7 +131,6 @@ def fenetres_globales_phrases(doc, stopset, exclure_nombres: bool, exclure_monol
     return fenetres
 
 def fenetres_globales_paragraphes(texte: str, stopset, exclure_nombres: bool, exclure_monolettre: bool):
-    """fenêtres = paragraphes (global, sans pivot)"""
     fenetres = []
     for pa in segmenter_paragraphes(texte):
         d = nlp(pa)
@@ -157,7 +143,6 @@ def fenetres_globales_paragraphes(texte: str, stopset, exclure_nombres: bool, ex
 # COOCURRENCES (FRÉQUENCE)
 # ================================
 def compter_cooc_globales(fenetres):
-    """pour chaque fenêtre, incrémente toutes les paires non ordonnées (a,b) avec a<b"""
     compteur = Counter()
     for S in fenetres:
         if len(S) < 2:
@@ -167,7 +152,6 @@ def compter_cooc_globales(fenetres):
     return compteur
 
 def poids_noeuds_depuis_aretes(paires_freq: dict):
-    """somme des poids des arêtes incidentes pour dimensionner/pondérer les nœuds"""
     deg = Counter()
     for (a, b), w in paires_freq.items():
         deg[a] += w
@@ -175,18 +159,10 @@ def poids_noeuds_depuis_aretes(paires_freq: dict):
     return deg
 
 def filtrer_par_frequence_au_moins(paires_freq: dict, n: int):
-    """garde les arêtes de poids >= n"""
     return {e: w for e, w in paires_freq.items() if w >= n}
 
 # ================================
-# PYVIS — (JS DÉSACTIVÉ)
-# ================================
-def _inject_freeze_on_click(html_str: str) -> str:
-    """Pas d'injection JS (stabilité Streamlit)"""
-    return html_str
-
-# ================================
-# PYVIS — GRAPHE GLOBAL (FRÉQUENCE) — physics ON, sans JS
+# PYVIS — GRAPHE GLOBAL & LLR (repris du script qui fonctionne)
 # ================================
 def _scale_linear(v, vmin, vmax, out_min, out_max):
     if vmax == vmin:
@@ -194,11 +170,10 @@ def _scale_linear(v, vmin, vmax, out_min, out_max):
     return out_min + (out_max - out_min) * ((v - vmin) / (vmax - vmin))
 
 def pyvis_reseau_global_html_couleur(paires_freq: dict, edge_label_size: int = 10):
-    """réseau global pondéré par fréquence — nœuds rouges, arêtes bleu clair"""
+    """Réseau global pondéré par fréquence (physics ON, solver forceAtlas2Based)."""
     if not paires_freq:
         return "<div>Aucune cooccurrence globale à afficher (filtre trop strict ?).</div>"
 
-    # degrés pondérés
     deg = Counter()
     for (a, b), w in paires_freq.items():
         deg[a] += float(w); deg[b] += float(w)
@@ -211,7 +186,7 @@ def pyvis_reseau_global_html_couleur(paires_freq: dict, edge_label_size: int = 1
     net = Network(height="900px", width="100%", directed=False, notebook=False, cdn_resources="in_line")
     net.set_options("""{
       "interaction": {"dragNodes": true, "dragView": true, "zoomView": true},
-      "physics": {"enabled": true, "minVelocity": 0.1, "solver": "forceAtlas2Based",
+      "physics": {"enabled": true, "solver": "forceAtlas2Based",
         "forceAtlas2Based": {"gravitationalConstant": -50,"centralGravity": 0.005,"springLength": 150,"springConstant": 0.08,"avoidOverlap": 1.0},
         "stabilization": {"enabled": true, "iterations": 300, "fit": true, "updateInterval": 25}
       },
@@ -219,7 +194,6 @@ def pyvis_reseau_global_html_couleur(paires_freq: dict, edge_label_size: int = 1
       "nodes": {"shape": "dot", "scaling": {"min": 8, "max": 60}}
     }""")
 
-    # nœuds rouges
     vus = set()
     for (a, b), _w in paires_freq.items():
         for n_ in (a, b):
@@ -227,23 +201,71 @@ def pyvis_reseau_global_html_couleur(paires_freq: dict, edge_label_size: int = 1
                 continue
             vus.add(n_)
             taille = _scale_linear(deg[n_], dmin, dmax, 10, 58)
-            net.add_node(n_, label=n_, title=f"{n_} (degré pondéré={deg[n_]:.0f})", size=taille, color="#e63946")
+            t = 0.0 if dmax == dmin else (deg[n_] - dmin) / (dmax - dmin)
+            col = mcolors.to_hex(cm.viridis(t))
+            net.add_node(n_, label=n_, title=f"{n_} (degré pondéré={deg[n_]:.0f})", size=taille, color=col)
 
-    # arêtes bleu clair
     for (a, b), w in paires_freq.items():
         w = float(w)
         width = _scale_linear(w, wmin, wmax, 1.2, 6.5)
-        net.add_edge(a, b, value=w, width=width, color="#60a5fa", label=str(int(w)),
+        t = 0.0 if wmax == wmin else (w - wmin) / (wmax - wmin)
+        ecol = mcolors.to_hex(cm.plasma(t))
+        net.add_edge(a, b, value=w, width=width, color=ecol, label=str(int(w)),
                      title=f"fréquence={int(w)}", font={"size": edge_label_size})
 
-    html_out = net.generate_html()
-    return _inject_freeze_on_click(html_out)  # no-op
+    return net.generate_html()
+
+def pyvis_graphe_likelihood_html(llr_scores: dict, pvals: dict, seuil_llr: float = 0.0, alpha: float = None, edge_label_size: int = 10):
+    """Graphe PyVis pondéré par G², avec filtre p-valeur optionnel (physics ON)."""
+    data = {e: s for e, s in llr_scores.items() if float(s) >= float(seuil_llr)}
+    if alpha is not None:
+        data = {e: s for e, s in data.items() if float(pvals.get(e, 1.0)) <= float(alpha)}
+    if not data:
+        return "<div>Aucune arête après application des seuils.</div>"
+
+    deg = Counter()
+    for (a, b), s in data.items():
+        deg[a] += s; deg[b] += s
+    dmin, dmax = (min(deg.values()), max(deg.values()))
+    smin, smax = (min(data.values()), max(data.values()))
+
+    net = Network(height="900px", width="100%", directed=False, notebook=False, cdn_resources="in_line")
+    net.set_options("""{
+      "interaction": {"dragNodes": true, "dragView": true, "zoomView": true},
+      "physics": {"enabled": true, "solver": "forceAtlas2Based",
+        "forceAtlas2Based": {"gravitationalConstant": -50,"centralGravity": 0.005,"springLength": 150,"springConstant": 0.08,"avoidOverlap": 1.0},
+        "stabilization": {"enabled": true, "iterations": 300, "fit": true, "updateInterval": 25}
+      },
+      "edges": {"smooth": false},
+      "nodes": {"shape": "dot", "scaling": {"min": 8, "max": 60}}
+    }""")
+
+    vus = set()
+    for (a, b), _ in data.items():
+        for n_ in (a, b):
+            if n_ in vus:
+                continue
+            vus.add(n_)
+            taille = _scale_linear(deg[n_], dmin, dmax, 10, 58)
+            t = 0.0 if dmax == dmin else (deg[n_] - dmin) / (dmax - dmin)
+            col = mcolors.to_hex(cm.viridis(t))
+            net.add_node(n_, label=n_, title=f"{n_} (somme Log-likelihood={deg[n_]:.2f})", size=taille, color=col)
+
+    for (a, b), s in data.items():
+        width = _scale_linear(s, smin, smax, 1.2, 6.5)
+        p = float(pvals.get((a, b), 1.0))
+        ecol = mcolors.to_hex(cm.inferno(_scale_linear(s, smin, smax, 0.0, 1.0)))
+        net.add_edge(a, b, value=s, width=width, color=ecol,
+                     label=f"{s:.2f}",
+                     title=f"Log-Likelihood={s:.2f} ; p={p:.3g}",
+                     font={"size": edge_label_size})
+
+    return net.generate_html()
 
 # ================================
 # CONCORDANCIERS (FONCTIONS)
 # ================================
 def surligner_phrase_paire(sent, w1: str, w2: str):
-    """surligne w1 et w2 dans la phrase surface"""
     toks = list(sent)
     out = []
     css = (
@@ -266,7 +288,6 @@ def surligner_phrase_paire(sent, w1: str, w2: str):
     return css + f"<div class='kwic-sent'>{''.join(out).strip()}</div>"
 
 def kwic_mots_pm_k(doc, stopset, exclure_nombres, exclure_monolettre, w1: str, w2: str, k: int, marge: int = 5):
-    """concordancier « mots (±k) » : extrait un segment surface lorsque w1 et w2 sont à ≤k positions"""
     norm, spans = iter_tokens_norm_et_carte_global(doc, stopset, exclure_nombres, exclure_monolettre)
     toks = list(doc)
     pos_w1 = [i for i, w in enumerate(norm) if w == w1]
@@ -313,7 +334,6 @@ def kwic_mots_pm_k(doc, stopset, exclure_nombres, exclure_monolettre, w1: str, w
     return lignes
 
 def surligner_paragraphe_paire(pa_texte: str, w1: str, w2: str):
-    """surligne w1 et w2 dans un paragraphe entier (surface)"""
     d = nlp(pa_texte)
     toks = list(d)
     out = []
@@ -337,7 +357,6 @@ def surligner_paragraphe_paire(pa_texte: str, w1: str, w2: str):
     return css + f"<div class='kwic-sent'>{''.join(out).strip()}</div>"
 
 def document_html_kwic(titre: str, sections_html):
-    """document html autonome pour télécharger un concordancier global"""
     style = (
         "<style>"
         "body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Noto Sans','Helvetica Neue',Arial;line-height:1.6;padding:12px}"
@@ -357,14 +376,12 @@ def document_html_kwic(titre: str, sections_html):
 # OUTILS
 # ================================
 def generer_csv(df: pd.DataFrame):
-    """retourne un tampon csv téléchargeable"""
     buf = io.StringIO()
     df.to_csv(buf, index=False)
     buf.seek(0)
     return buf
 
 def generer_nuage_mots(degre_pondere: dict, titre: str):
-    """nuage de mots : taille = poids fourni (fréquence ou somme des G²)"""
     freq_pos = {w: float(v) for w, v in degre_pondere.items() if v and v > 0}
     if not freq_pos:
         st.info("Nuage non généré : aucune valeur strictement positive.")
@@ -373,31 +390,26 @@ def generer_nuage_mots(degre_pondere: dict, titre: str):
     fig = plt.figure(figsize=(10, 5))
     plt.imshow(wc, interpolation="bilinear"); plt.axis("off"); plt.title(titre)
     st.pyplot(fig)
-    # téléchargement PNG
     buf_png = io.BytesIO()
     wc.to_image().save(buf_png, format="PNG")
     buf_png.seek(0)
     st.session_state["nuage_png"] = buf_png.getvalue()
 
 def generer_png_graphe_stat(paires_freq: dict, largeur_px: int = 1600, hauteur_px: int = 1000, dpi: int = 100) -> bytes:
-    """PNG statique du graphe pondéré (fréquence)"""
     if not paires_freq:
         return b""
     G = nx.Graph()
     for (a, b), w in paires_freq.items():
         G.add_edge(a, b, weight=float(w))
 
-    # degré pondéré (somme des poids)
     deg_p = {n: float(sum(d["weight"] for _u, _v, d in G.edges(n, data=True))) for n in G.nodes()}
     if not deg_p:
         return b""
 
-    # positions (spring) pondérées
     n = max(G.number_of_nodes(), 1)
     k_dist = 1.2 / (n ** 0.5)
     pos = nx.spring_layout(G, weight="weight", seed=42, k=k_dist, iterations=200)
 
-    # échelles
     dvals = list(deg_p.values())
     dmin, dmax = min(dvals), max(dvals)
     def scale(val, vmin, vmax, out_min, out_max):
@@ -405,18 +417,14 @@ def generer_png_graphe_stat(paires_freq: dict, largeur_px: int = 1600, hauteur_p
             return (out_min + out_max) / 2.0
         return out_min + (out_max - out_min) * ((val - vmin) / (vmax - vmin))
 
-    # figure 1600×1000
     fig_w = largeur_px / dpi
     fig_h = hauteur_px / dpi
     fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
     ax.axis("off")
 
-    # couleurs/tailles des nœuds
-    # (la capture statique reste avec palette pour lisibilité ; PyVis utilise rouge/bleu clair)
     ncolors = [cm.viridis(scale(deg_p[n], dmin, dmax, 0.0, 1.0)) for n in G.nodes()]
     nsizes = [scale(deg_p[n], dmin, dmax, 300, 3000) for n in G.nodes()]
 
-    # arêtes
     wvals = [d["weight"] for _u, _v, d in G.edges(data=True)]
     wmin, wmax = (min(wvals), max(wvals)) if wvals else (1.0, 1.0)
     ewidths = [scale(w, wmin, wmax, 0.8, 5.0) for w in wvals]
@@ -437,7 +445,6 @@ def generer_png_graphe_stat(paires_freq: dict, largeur_px: int = 1600, hauteur_p
 # LOGLIKELIHOOD (DUNNING) + p-VALEUR
 # ================================
 def compter_presence_par_fenetre(fenetres):
-    """compte, pour chaque mot, dans combien de fenêtres il apparaît au moins une fois"""
     c = Counter()
     for S in fenetres:
         for w in S:
@@ -445,7 +452,6 @@ def compter_presence_par_fenetre(fenetres):
     return c
 
 def tableau_contingence(a: str, b: str, pres_counts: dict, k11: int, N: int):
-    """table de contingence sur fenêtres"""
     k12 = pres_counts.get(a, 0) - k11
     k21 = pres_counts.get(b, 0) - k11
     k22 = N - k11 - k12 - k21
@@ -456,7 +462,6 @@ def _xlogx(x: float) -> float:
     return x * math.log(x) if x > 0 else 0.0
 
 def log_likelihood(k11, k12, k21, k22) -> float:
-    """Score G² de Dunning (rapport de vraisemblance)"""
     row1 = k11 + k12
     row2 = k21 + k22
     col1 = k11 + k21
@@ -469,13 +474,11 @@ def log_likelihood(k11, k12, k21, k22) -> float:
     )
 
 def p_value_chi2_df1(g2: float) -> float:
-    """p-valeur pour G² avec 1 ddl : p = P(Chi2_1 >= G²)"""
     if g2 < 0 or not math.isfinite(g2):
         return 1.0
     return float(chi2.sf(g2, df=1))
 
 def calculer_llr_et_pval(paires_freq: dict, fenetres):
-    """retourne dict G² et dict p-valeurs pour toutes les paires observées"""
     if not paires_freq:
         return {}, {}
     pres = compter_presence_par_fenetre(fenetres)
@@ -491,89 +494,11 @@ def calculer_llr_et_pval(paires_freq: dict, fenetres):
     return g2, pvals
 
 # ================================
-# PYVIS — GRAPHE LOGLIKELIHOOD (STATIQUE, SANS JS)
-# ================================
-
-def pyvis_graphe_likelihood_html(llr_scores: dict, pvals: dict, seuil_llr: float = 0.0, alpha: float = None):
-    """
-    Graphe PyVis pondéré par G² (LLR) — mêmes options/physique que le graphe fréquence,
-    aucun JS ajouté.
-    """
-    # Filtrage LLR (+ p-valeur optionnelle)
-    data = {e: float(s) for e, s in llr_scores.items() if float(s) >= float(seuil_llr)}
-    if alpha is not None:
-        a = float(alpha)
-        data = {e: s for e, s in data.items() if float(pvals.get(e, 1.0)) <= a}
-    if not data:
-        return "<div>Aucune arête après application des seuils.</div>"
-
-    # Degré pondéré = somme des LLR
-    from collections import Counter
-    deg = Counter()
-    for (a, b), s in data.items():
-        deg[a] += s
-        deg[b] += s
-    dvals = list(deg.values()) or [1.0]
-    dmin, dmax = min(dvals), max(dvals)
-
-    svals = list(data.values()) or [1.0]
-    smin, smax = min(svals), max(svals)
-
-    # Réseau PyVis — mêmes options que le graphe fréquence
-    net = Network(height="900px", width="100%", directed=False, notebook=False, cdn_resources="in_line")
-    net.set_options("""{
-      "interaction": {"dragNodes": true, "dragView": true, "zoomView": true},
-      "physics": {"enabled": true, "minVelocity": 0.1, "solver": "forceAtlas2Based",
-        "forceAtlas2Based": {"gravitationalConstant": -50,"centralGravity": 0.005,"springLength": 150,"springConstant": 0.08,"avoidOverlap": 1.0},
-        "stabilization": {"enabled": true, "iterations": 300, "fit": true, "updateInterval": 25}
-      },
-      "edges": {"smooth": false},
-      "nodes": {"shape": "dot", "scaling": {"min": 8, "max": 60}}
-    }""")
-
-    # Nœuds rouges (même logique que fréquence)
-    vus = set()
-    for (a, b), _ in data.items():
-        for n_ in (a, b):
-            if n_ in vus:
-                continue
-            vus.add(n_)
-            taille = _scale_linear(deg[n_], dmin, dmax, 10, 58)
-            net.add_node(
-                n_,
-                label=n_,
-                title=f"{n_} (somme Log-likelihood={deg[n_]:.2f})",
-                size=taille,
-                color="#e63946"
-            )
-
-    # Arêtes bleu clair (largeur selon LLR, style identique à fréquence)
-    for (a, b), s in data.items():
-        width = _scale_linear(s, smin, smax, 1.2, 6.5) if smax > smin else 3.0
-        p = float(pvals.get((a, b), 1.0))
-        net.add_edge(
-            a, b,
-            value=float(s),
-            width=max(1.0, float(width)),
-            color="#60a5fa",
-            label=f"{float(s):.6f}",
-            title=f"Log-Likelihood={float(s):.6f} ; p={p:.3g}",
-            font={"size": 10}
-        )
-
-    html_out = net.generate_html()
-    return html_out
-
-# ================================
 # INTERFACE — PARAMÈTRES ET EXPLICATIONS
 # ================================
 st.set_page_config(page_title="Cooccurrences globales (sans mot pivot) — Graphe, Likelihood, Nuage, Concordancier")
 
-# ==== TITRE principal en rouge (fenêtre ajoutée après choix) ====
-st.markdown(
-    "<h1 style='color:#e63946'>Cooccurrences globales (sans mot pivot)</h1>",
-    unsafe_allow_html=True
-)
+st.markdown("<h1 style='color:#e63946'>Cooccurrences globales (sans mot pivot)</h1>", unsafe_allow_html=True)
 st.caption("Stéphane Meurisse — version beta 1.1 - 26/07/2025 \\- [www.codeandcortex.fr](https://www.codeandcortex.fr)")
 st.markdown("---")
 
@@ -593,16 +518,14 @@ texte_libre = st.text_area("Ou collez votre texte ici", height=220,
                            placeholder="Collez votre corpus ici…", key="texte")
 
 st.subheader("Fenêtre de contexte")
-fenetre = st.selectbox("Type de fenêtre", ["Mots (±k)", "Phrase", "Paragraphe"], key="fenetre")  # PAS de "Document" ici
+fenetre = st.selectbox("Type de fenêtre", ["Mots (±k)", "Phrase", "Paragraphe"], key="fenetre")
 k = 5
 if fenetre == "Mots (±k)":
     k = st.number_input("Paramètre k (taille de la fenêtre en mots)",
                         min_value=1, max_value=10000, value=5, step=1, key="k")
 
-# Mode Document séparé (multi-fichiers traités indépendamment)
 mode_document = st.checkbox("Analyser chaque fichier séparément (mode Document)", value=False, key="mode_doc")
 
-# Rappel visuel du mode choisi (en rouge)
 st.markdown(f"<div style='color:#e63946;margin-top:6px'><strong>Fenêtre sélectionnée :</strong> {fenetre}</div>", unsafe_allow_html=True)
 if mode_document:
     st.markdown("<div style='color:#1d3557'>Mode Document activé : chaque fichier est analysé séparément, puis affiché l’un après l’autre.</div>", unsafe_allow_html=True)
@@ -616,29 +539,21 @@ st.subheader("Filtrage par fréquence")
 n_filtre = st.number_input("Fréquence minimale N (au moins N)", min_value=1, max_value=100000,
                            value=2, step=1, key="nmin")
 
-# Paramètres likelihood
 st.subheader("Paramètres likelihood")
 seuil_llr_graphe = st.number_input("Seuil minimal log-likelihood pour le graphe (arêtes ≥ seuil)",
                                    min_value=0.0, max_value=1e9, value=5.0, step=1.0, key="seuil_llr")
-st.markdown(
-    "**log-likelihood ratio.** Ce réglage est un **filtre supplémentaire** pour le graphe : "
-    "seules les arêtes (paires de mots) dont **log-likelihood ≥ seuil** sont dessinées (désencombrement visuel)."
-)
+st.markdown("**log-likelihood ratio.** Filtre visuel : seules les arêtes avec **log-likelihood ≥ seuil** sont dessinées.")
 activer_filtre_p = st.checkbox("Activer le filtre par p-valeur", value=True, key="filtre_p")
 alpha = st.number_input("Seuil α (p ≤ α)", min_value=0.0001, max_value=1.0,
                         value=0.05, step=0.01, key="alpha")
 
-top_k_llr_cloud  = st.number_input("Top K cooccurrences (nuage log-likelihood)",
-                                   min_value=1, max_value=5000, value=10, step=5, key="topk_llr_pairs")
-top_k_freq_pairs = st.number_input("Top K cooccurrences (nuage fréquence)",
-                                   min_value=1, max_value=5000, value=10, step=5, key="topk_freq_pairs")
-
+top_k_llr_cloud  = st.number_input("Top K cooccurrences (nuage log-likelihood)", min_value=1, max_value=5000, value=10, step=5, key="topk_llr_pairs")
+top_k_freq_pairs = st.number_input("Top K cooccurrences (nuage fréquence)",      min_value=1, max_value=5000, value=10, step=5, key="topk_freq_pairs")
 
 # ================================
-# CALCUL — déclenché une seule fois par le bouton
+# CALCUL
 # ================================
 if st.button("Calculer les cooccurrences", key="btn_calc"):
-    # Corpus (gestion multi-fichiers)
     textes_list, noms_list = [], []
 
     if uploaded:
@@ -659,27 +574,18 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
         st.error("Veuillez fournir un texte.")
         st.stop()
 
-    # Préparation
     stopset = construire_stopwords(appliquer_stop)
 
-    # -------------------------
-    # Mode Document (analyse indépendante par fichier)
-    # -------------------------
     if mode_document:
         docs_results = []
-        fenetres_globales_agregees = []
-
         for txt, nom in zip(textes_list, noms_list):
             ddoc = nlp(txt)
-
             if fenetre == "Mots (±k)":
                 fens = fenetres_globales_mots(ddoc, int(k), stopset, exclure_nombres, exclure_monolettre)
             elif fenetre == "Phrase":
                 fens = fenetres_globales_phrases(ddoc, stopset, exclure_nombres, exclure_monolettre)
             else:
                 fens = fenetres_globales_paragraphes(txt, stopset, exclure_nombres, exclure_monolettre)
-
-            fenetres_globales_agregees.extend(fens)
 
             p_all = compter_cooc_globales(fens)
             p_freq = filtrer_par_frequence_au_moins(p_all, int(n_filtre))
@@ -709,7 +615,6 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
                 "df_llr_all": df_llr_all,
             })
 
-        # Concat pour KWIC global si besoin (apercu multi-docs)
         texte_concat = "\n\n".join(textes_list)
         doc_concat = nlp(texte_concat)
 
@@ -724,9 +629,6 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
             "exclure_nombres": exclure_nombres,
             "exclure_monolettre": exclure_monolettre,
         }
-    # -------------------------
-    # Mode classique (concaténation)
-    # -------------------------
     else:
         texte = "\n\n".join(textes_list)
         doc = nlp(texte)
@@ -760,7 +662,7 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
             "stopset": stopset,
             "exclure_nombres": exclure_nombres,
             "exclure_monolettre": exclure_monolettre,
-            "doc": doc,  # objet spaCy
+            "doc": doc,
             "fenetres": fenetres_calc,
             "paires_all": paires_all,
             "paires_freq": paires_freq,
@@ -773,7 +675,7 @@ if st.button("Calculer les cooccurrences", key="btn_calc"):
     st.success("Calcul terminé. Vous pouvez ajuster les seuils / Top-K sans recalculer.")
 
 # ================================
-# AFFICHAGE À PARTIR DE LA SESSION (aucun recalcul)
+# AFFICHAGE À PARTIR DE LA SESSION
 # ================================
 res = st.session_state.get("res")
 if not res:
@@ -787,7 +689,7 @@ excl_num_saved  = res.get("exclure_nombres", True)
 excl_mono_saved = res.get("exclure_monolettre", True)
 
 # ---------------------------------------------------------
-# MODE DOCUMENT : affichage par fichier (Document 1, 2, …)
+# MODE DOCUMENT
 # ---------------------------------------------------------
 if res.get("mode_document", False):
     st.markdown(f"<h2 style='color:#e63946'>Mode Document — Fenêtre : {fenetre_saved}</h2>", unsafe_allow_html=True)
@@ -803,10 +705,8 @@ if res.get("mode_document", False):
         df_llr_all = docres["df_llr_all"]
         texte = docres["texte"]
 
-        # --- TITRE Document : texte BLANC sur fond bleu sombre (lisible) ---
         st.markdown(
-            f"<div style='background:#1d3557;color:#ffffff;padding:10px 14px;"
-            f"border-radius:8px;margin:14px 0;font-weight:600'>"
+            f"<div style='background:#1d3557;color:#ffffff;padding:10px 14px;border-radius:8px;margin:14px 0;font-weight:600'>"
             f"Document {i} — {html.escape(nom)}</div>",
             unsafe_allow_html=True
         )
@@ -821,7 +721,6 @@ if res.get("mode_document", False):
                            mime="text/csv",
                            key=f"dl_csv_pairs_{i}")
 
-        # Statistiques simples
         noeuds = set()
         for (a, b) in paires_freq.keys():
             noeuds.add(a); noeuds.add(b)
@@ -829,7 +728,6 @@ if res.get("mode_document", False):
         densite = 0.0 if V < 2 else (2 * E) / (V * (V - 1))
         st.write(f"Nœuds : {V} — Arêtes : {E} — Densité ≈ {densite:.3f}")
 
-        # Graphe (fréquence) — PyVis (nœuds rouges, arêtes bleu clair)
         st.markdown(f"<h4 style='color:#e63946'>Graphe global (pondéré par la fréquence) — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
         html_global = pyvis_reseau_global_html_couleur(paires_freq, edge_label_size=10)
         st_html(html_global, height=900, scrolling=True)
@@ -839,7 +737,6 @@ if res.get("mode_document", False):
                            mime="text/html",
                            key=f"dl_graph_freq_html_{i}")
 
-        # PNG statique (fréquence)
         png_graphe = generer_png_graphe_stat(paires_freq, largeur_px=1600, hauteur_px=1000, dpi=100)
         if png_graphe:
             st.download_button("Télécharger le graphe (PNG 1600px)",
@@ -848,11 +745,9 @@ if res.get("mode_document", False):
                                mime="image/png",
                                key=f"dl_graph_freq_png_{i}")
 
-        # === Nuage des cooccurrences (fréquence) ===
+        # === Nuage fréquence ===
         st.markdown(f"<h4 style='color:#e63946'>Nuage des cooccurrences (fréquence) — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
-        st.markdown("Chaque \"mot\" est une **paire** `mot1_mot2`. Poids = **fréquence de cooccurrence**. "
-                    "On part de **toutes** les paires observées (pas le filtre N), puis on affiche le Top-K.")
-        pairs_freq_for_cloud = {f"{a}_{b}": int(w) for (a, b), w in paires_all.items()}  # toutes les paires observées
+        pairs_freq_for_cloud = {f"{a}_{b}": int(w) for (a, b), w in paires_all.items()}
         pairs_freq_for_cloud = {k: v for k, v in pairs_freq_for_cloud.items() if v > 0}
         if pairs_freq_for_cloud:
             items_pairs = sorted(pairs_freq_for_cloud.items(), key=lambda x: x[1], reverse=True)[:int(top_k_freq_pairs)]
@@ -926,9 +821,7 @@ if res.get("mode_document", False):
                 apercu_parts.append(f"<h3>{titre_pair}</h3>{ligne}")
             st.markdown("\n".join(apercu_parts), unsafe_allow_html=True)
 
-            # Ligne vide avant le bouton (lisibilité)
             st.markdown("&nbsp;", unsafe_allow_html=True)
-
             doc_html_freq = document_html_kwic(f"Concordancier — cooccurrences (fréquence) — Fenêtre : {fenetre_saved} — {nom}", sections_full)
             st.download_button("Télécharger le concordancier complet (HTML)",
                                data=doc_html_freq.encode("utf-8"),
@@ -938,13 +831,9 @@ if res.get("mode_document", False):
 
         # ---------- LIKELIHOOD ----------
         st.markdown(f"<h4 style='color:#e63946'>Approche par log-likelihood — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
-        st.markdown(
-            "Le **log-likelihood** teste l’indépendance des deux mots par fenêtre. "
-            "Pour chaque paire, on calcule la statistique de **log-likelihood** et sa **p-valeur** "
-            "Vous pouvez **filtrer par p ≤ α** ci-dessous."
-        )
+        st.markdown("Filtrer par p ≤ α si nécessaire.")
 
-        df_llr = docres["df_llr_all"].copy()
+        df_llr = df_llr_all.copy()
         if activer_filtre_p:
             df_llr = df_llr[df_llr["p_value"] <= float(alpha)]
         info_filtre = f"(filtré p ≤ {alpha})" if activer_filtre_p else "(sans filtre p)"
@@ -952,9 +841,7 @@ if res.get("mode_document", False):
 
         st.markdown(f"Table des paires triées par **log-likelihood décroissant** {info_filtre}.")
         df_llr_display = df_llr.copy()
-        df_llr_display["p_value"] = df_llr_display["p_value"].apply(
-            lambda p: "< 0.000001" if p < 1e-6 else f"{p:.6f}"
-        )
+        df_llr_display["p_value"] = df_llr_display["p_value"].apply(lambda p: "< 0.000001" if p < 1e-6 else f"{p:.6f}")
         st.dataframe(df_llr_display.head(3000), use_container_width=True)
 
         st.download_button("Télécharger le CSV (log-likelihood + p-valeur)",
@@ -963,13 +850,11 @@ if res.get("mode_document", False):
                            mime="text/csv",
                            key=f"dl_llr_csv_{i}")
 
-        # Graphe Log-likelihood (STATIQUE)
         llr_for_graph = {(r.mot1, r.mot2): float(r.log_likelihood) for _, r in df_llr.iterrows()}
         p_for_graph   = {(r.mot1, r.mot2): float(r.p_value)        for _, r in df_llr.iterrows()}
         alpha_used = float(alpha) if activer_filtre_p else None
 
-        html_llr = pyvis_graphe_likelihood_html(llr_for_graph, p_for_graph,
-                                                seuil_llr=float(seuil_llr_graphe), alpha=alpha_used)
+        html_llr = pyvis_graphe_likelihood_html(llr_for_graph, p_for_graph, seuil_llr=float(seuil_llr_graphe), alpha=alpha_used)
         st.markdown(f"<h4 style='color:#e63946'>Graphe basé sur le likelihood — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
         st_html(html_llr, height=900, scrolling=True)
         st.download_button("Télécharger le graphe likelihood (HTML)",
@@ -978,18 +863,10 @@ if res.get("mode_document", False):
                            mime="text/html",
                            key=f"dl_llr_html_{i}")
 
-        # === Nuage des cooccurrences (log-likelihood, non filtré) ===
+        # === Nuage LLR ===
         st.markdown(f"<h4 style='color:#e63946'>Nuage des cooccurrences (log-likelihood) — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
-        st.markdown(
-            'Chaque "mot" du nuage correspond à une **paire** `mot1_mot2`. '
-            'Poids = **log-likelihood**. '
-            "Aucun **seuil log-likelihood** ni **filtre p-value** n'est appliqué à ce nuage ; "
-            "on affiche le **Top-K** des paires par score du log-likelihood."
-        )
-
         pairs_llr_for_cloud = {f"{a}_{b}": float(g2_scores[(a, b)]) for (a, b) in g2_scores.keys()}
         pairs_llr_for_cloud = {k: v for k, v in pairs_llr_for_cloud.items() if v > 0}
-
         if pairs_llr_for_cloud:
             items_pairs_llr = sorted(pairs_llr_for_cloud.items(), key=lambda x: x[1], reverse=True)[:int(top_k_llr_cloud)]
             generer_nuage_mots(dict(items_pairs_llr), f"Top {int(top_k_llr_cloud)} — cooccurrences par loglikelihood (non filtré) — Fenêtre : {fenetre_saved} — {nom}")
@@ -1006,7 +883,7 @@ if res.get("mode_document", False):
 
         # ---------- CONCORDANCIER (LLR) ----------
         st.markdown(f"<h4 style='color:#e63946'>Concordancier — meilleures associations (log-likelihood) — Fenêtre : {fenetre_saved}</h4>", unsafe_allow_html=True)
-        st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues), triées par **log-likelihood**.")
+        st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues).")
 
         sections_llr_full = []
         all_lines_llr_preview = []
@@ -1021,7 +898,7 @@ if res.get("mode_document", False):
                 titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.6f}; p={p_txt})"
                 lignes = []
                 for sent, sset in sent_infos:
-                    if w1 in sset and w2 in sset:
+                    if w1 in sset and w2 in sset:  # <-- FIX and (pas "et")
                         h = surligner_phrase_paire(sent, w1, w2)
                         lignes.append(h)
                         all_lines_llr_preview.append((titre_pair, h))
@@ -1066,9 +943,7 @@ if res.get("mode_document", False):
                 apercu_llr.append(f"<h3>{titre_pair}</h3>{ligne}")
             st.markdown("\n".join(apercu_llr), unsafe_allow_html=True)
 
-            # Ligne vide avant le bouton (lisibilité)
             st.markdown("&nbsp;", unsafe_allow_html=True)
-
             doc_html_llr = document_html_kwic(f"Concordancier — log-likelihood (complet) — Fenêtre : {fenetre_saved} — {nom}", sections_llr_full)
             st.download_button("Télécharger le concordancier likelihood complet (HTML)",
                                data=doc_html_llr.encode("utf-8"),
@@ -1077,7 +952,7 @@ if res.get("mode_document", False):
                                key=f"dl_kwic_llr_{i}")
 
 # ---------------------------------------------------------
-# MODE CLASSIQUE : concaténation (affichage unique)
+# MODE CLASSIQUE
 # ---------------------------------------------------------
 else:
     texte        = res["texte"]
@@ -1090,15 +965,11 @@ else:
     pvals        = res["pvals"]
     df_llr_all   = res["df_llr_all"]
 
-    # ---------- FRÉQUENCE ----------
     st.markdown(f"<h3 style='color:#e63946'>Table des cooccurrences retenues (fréquence) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
     st.dataframe(df_paires.head(3000), use_container_width=True)
-    st.download_button("Télécharger le CSV (paires filtrées)",
-                       data=generer_csv(df_paires).getvalue(),
-                       file_name="cooccurrences_filtrees.csv",
-                       mime="text/csv")
+    st.download_button("Télécharger le CSV (paires filtrées)", data=generer_csv(df_paires).getvalue(),
+                       file_name="cooccurrences_filtrees.csv", mime="text/csv")
 
-    # Statistiques simples
     noeuds = set()
     for (a, b) in paires_freq.keys():
         noeuds.add(a); noeuds.add(b)
@@ -1106,43 +977,20 @@ else:
     densite = 0.0 if V < 2 else (2 * E) / (V * (V - 1))
     st.write(f"Nœuds : {V} — Arêtes : {E} — Densité ≈ {densite:.3f}")
 
-    # Graphe (fréquence)
     st.markdown(f"<h3 style='color:#e63946'>Graphe global (pondéré par la fréquence) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
-    st.markdown(
-        "Le **degré pondéré** d’un mot est la **somme des fréquences** de ses arêtes. "
-    )
-    st.markdown("""
-**Pondération des nœuds vs degré simple**
-
-- **Degré simple** (non pondéré) : nombre de voisins distincts d’un mot  
-  (combien d’arêtes sortent du nœud, indépendamment de leur fréquence).
-- **Degré pondéré** *(utilisé ici)* : **somme des fréquences de cooccurrence** entre le mot et **tous** ses voisins.
-- **Conséquence** : un mot relié à peu de voisins mais **très fréquent** avec eux peut avoir un nœud plus gros
-  qu’un mot relié à de nombreux voisins mais **faiblement**.
-""")
     html_global = pyvis_reseau_global_html_couleur(paires_freq, edge_label_size=10)
     st_html(html_global, height=900, scrolling=True)
-    st.download_button("Télécharger le graphe (HTML)",
-                       data=html_global.encode("utf-8"),
-                       file_name="graphe_cooccurrences.html",
-                       mime="text/html")
+    st.download_button("Télécharger le graphe (HTML)", data=html_global.encode("utf-8"),
+                       file_name="graphe_cooccurrences.html", mime="text/html")
 
-    # PNG statique (fréquence)
     png_graphe = generer_png_graphe_stat(paires_freq, largeur_px=1600, hauteur_px=1000, dpi=100)
     if png_graphe:
-        st.download_button("Télécharger le graphe (PNG 1600px)",
-                           data=png_graphe,
-                           file_name="graphe_cooccurrences.png",
-                           mime="image/png")
+        st.download_button("Télécharger le graphe (PNG 1600px)", data=png_graphe,
+                           file_name="graphe_cooccurrences.png", mime="image/png")
 
-    # === Nuage des cooccurrences (fréquence) ===
     st.markdown(f"<h3 style='color:#e63946'>Nuage des cooccurrences (fréquence) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
-    st.markdown("Chaque \"mot\" est une **paire** `mot1_mot2`. Poids = **fréquence de cooccurrence**. "
-                "On part de **toutes** les paires observées (pas le filtre N), puis on affiche le Top-K.")
-
-    pairs_freq_for_cloud = {f"{a}_{b}": int(w) for (a, b), w in paires_all.items()}  # toutes les paires observées
+    pairs_freq_for_cloud = {f"{a}_{b}": int(w) for (a, b), w in paires_all.items()}
     pairs_freq_for_cloud = {k: v for k, v in pairs_freq_for_cloud.items() if v > 0}
-
     if pairs_freq_for_cloud:
         items_pairs = sorted(pairs_freq_for_cloud.items(), key=lambda x: x[1], reverse=True)[:int(top_k_freq_pairs)]
         generer_nuage_mots(dict(items_pairs), f"Top {int(top_k_freq_pairs)} — cooccurrences par fréquence — Fenêtre : {fenetre_saved}")
@@ -1156,7 +1004,6 @@ else:
     else:
         st.info("Nuage non généré (aucune paire).")
 
-    # ---------- CONCORDANCIER (FRÉQUENCE) ----------
     st.markdown(f"<h3 style='color:#e63946'>Concordancier global (fréquence) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
     st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues).")
 
@@ -1171,7 +1018,7 @@ else:
             titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (f={int(w)})"
             lignes = []
             for sent, sset in sent_infos:
-                if w1 in sset and w2 in sset :
+                if w1 in sset and w2 in sset:
                     h = surligner_phrase_paire(sent, w1, w2)
                     lignes.append(h)
                     all_lines_for_preview.append((titre_pair, h))
@@ -1214,9 +1061,7 @@ else:
             apercu_parts.append(f"<h3>{titre_pair}</h3>{ligne}")
         st.markdown("\n".join(apercu_parts), unsafe_allow_html=True)
 
-        # Ligne vide avant le bouton (lisibilité)
         st.markdown("&nbsp;", unsafe_allow_html=True)
-
         doc_html_freq = document_html_kwic(f"Concordancier global — cooccurrences (fréquence) — Fenêtre : {fenetre_saved}", sections_full)
         st.download_button("Télécharger le concordancier complet (HTML)",
                            data=doc_html_freq.encode("utf-8"),
@@ -1225,13 +1070,6 @@ else:
 
     # ---------- LIKELIHOOD ----------
     st.markdown(f"<h3 style='color:#e63946'>Approche par log-likelihood — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
-    st.markdown(
-        "Le **log-likelihood** teste l’indépendance des deux mots par fenêtre. "
-        "Pour chaque paire, on calcule la statistique de **log-likelihood** et sa **p-valeur** "
-        "Vous pouvez **filtrer par p ≤ α** ci-dessous."
-    )
-
-    # Filtre p-valeur
     df_llr = df_llr_all.copy()
     if activer_filtre_p:
         df_llr = df_llr[df_llr["p_value"] <= float(alpha)]
@@ -1240,9 +1078,7 @@ else:
 
     st.markdown(f"Table des paires triées par **log-likelihood décroissant** {info_filtre}.")
     df_llr_display = df_llr.copy()
-    df_llr_display["p_value"] = df_llr_display["p_value"].apply(
-        lambda p: "< 0.000001" if p < 1e-6 else f"{p:.6f}"
-    )
+    df_llr_display["p_value"] = df_llr_display["p_value"].apply(lambda p: "< 0.000001" if p < 1e-6 else f"{p:.6f}")
     st.dataframe(df_llr_display.head(3000), use_container_width=True)
 
     st.download_button("Télécharger le CSV (log-likelihood + p-valeur)",
@@ -1250,13 +1086,11 @@ else:
                        file_name="cooccurrences_likelihood_p.csv",
                        mime="text/csv")
 
-    # Graphe Log-likelihood (STATIQUE)
     llr_for_graph = {(r.mot1, r.mot2): float(r.log_likelihood) for _, r in df_llr.iterrows()}
     p_for_graph   = {(r.mot1, r.mot2): float(r.p_value)        for _, r in df_llr.iterrows()}
     alpha_used = float(alpha) if activer_filtre_p else None
 
-    html_llr = pyvis_graphe_likelihood_html(llr_for_graph, p_for_graph,
-                                            seuil_llr=float(seuil_llr_graphe), alpha=alpha_used)
+    html_llr = pyvis_graphe_likelihood_html(llr_for_graph, p_for_graph, seuil_llr=float(seuil_llr_graphe), alpha=alpha_used)
     st.markdown(f"<h3 style='color:#e63946'>Graphe basé sur le likelihood — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
     st_html(html_llr, height=900, scrolling=True)
     st.download_button("Télécharger le graphe likelihood (HTML)",
@@ -1264,18 +1098,10 @@ else:
                        file_name="graphe_likelihood.html",
                        mime="text/html")
 
-    # === Nuage des cooccurrences (log-likelihood, non filtré) ===
+    # === Nuage LLR ===
     st.markdown(f"<h3 style='color:#e63946'>Nuage des cooccurrences (log-likelihood) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
-    st.markdown(
-        'Chaque "mot" du nuage correspond à une **paire** `mot1_mot2`. '
-        'Poids = **log-likelihood**. '
-        "Aucun **seuil log-likelihood** ni **filtre p-value** n'est appliqué à ce nuage ; "
-        "on affiche le **Top-K** des paires par score du log-likelihood."
-    )
-
     pairs_llr_for_cloud = {f"{a}_{b}": float(g2_scores[(a, b)]) for (a, b) in g2_scores.keys()}
     pairs_llr_for_cloud = {k: v for k, v in pairs_llr_for_cloud.items() if v > 0}
-
     if pairs_llr_for_cloud:
         items_pairs_llr = sorted(pairs_llr_for_cloud.items(), key=lambda x: x[1], reverse=True)[:int(top_k_llr_cloud)]
         generer_nuage_mots(dict(items_pairs_llr), f"Top {int(top_k_llr_cloud)} — cooccurrences par loglikelihood (non filtré) — Fenêtre : {fenetre_saved}")
@@ -1291,8 +1117,6 @@ else:
 
     # ---------- CONCORDANCIER (LLR) ----------
     st.markdown(f"<h3 style='color:#e63946'>Concordancier — meilleures associations (log-likelihood) — Fenêtre : {fenetre_saved}</h3>", unsafe_allow_html=True)
-    st.markdown("Aperçu limité aux **10 premières phrases** (toutes paires confondues), triées par **log-likelihood**.")
-
     sections_llr_full = []
     all_lines_llr_preview = []
     pairs_llr_sorted = [((r.mot1, r.mot2), float(r.log_likelihood), float(r.p_value)) for _, r in df_llr.iterrows()]
@@ -1306,7 +1130,7 @@ else:
             titre_pair = f"{html.escape(w1)} — {html.escape(w2)} (log-likelihood={s:.6f}; p={p_txt})"
             lignes = []
             for sent, sset in sent_infos:
-                if w1 in sset and w2 in sset:
+                if w1 in sset and w2 in sset:  # <-- FIX and
                     h = surligner_phrase_paire(sent, w1, w2)
                     lignes.append(h)
                     all_lines_llr_preview.append((titre_pair, h))
@@ -1351,9 +1175,7 @@ else:
             apercu_llr.append(f"<h3>{titre_pair}</h3>{ligne}")
         st.markdown("\n".join(apercu_llr), unsafe_allow_html=True)
 
-        # Ligne vide avant le bouton (lisibilité)
         st.markdown("&nbsp;", unsafe_allow_html=True)
-
         doc_html_llr = document_html_kwic(f"Concordancier — log-likelihood — Fenêtre : {fenetre_saved}", sections_llr_full)
         st.download_button("Télécharger le concordancier likelihood complet (HTML)",
                            data=doc_html_llr.encode("utf-8"),
