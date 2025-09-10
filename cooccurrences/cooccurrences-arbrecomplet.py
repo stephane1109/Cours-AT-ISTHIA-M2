@@ -45,6 +45,13 @@ except Exception:
         "pip install -U spacy && python -m spacy download fr_core_news_md"
     )
 
+
+# ================================
+# IMPORTANT !
+# ================================
+# fenetre phrase : sentencizer règle-basé qui PREND LA MAIN sur doc.sents
+# Règle de segmentation en phrases, basée sur la ponctuation forte.
+# Par défaut spaCy coupe sur ".", "!", "?" ; on ajoute "…" et on force le remplacement.
 # ==== Sentencizer pour garantir doc.sents ====
 if "senter" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
     nlp.add_pipe("sentencizer", config={"punct_chars": [".", "!", "?", "…"]})
