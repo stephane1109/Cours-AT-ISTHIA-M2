@@ -1,4 +1,16 @@
-# pip install streamlit matplotlib pandas
+################################################
+# Stéphane Meurisse
+# www.codeandcortex.fr
+# version beta 1.0
+# 06 aout 2025
+################################################
+
+# python -m streamlit run main.py
+
+# ##########
+# pip install streamlit pandas matplotlib
+############
+
 
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -95,26 +107,23 @@ Certains mots apparaissent très souvent, d’autres très rarement.
 
 Dans le **graphique log-log** ci-dessus :
 
-- L’**axe horizontal** représente le **rang** du mot : 1er mot le plus fréquent, 2e, 3e, etc.
+- L’**axe horizontal** représente le **rang** du mot : 1er mot le plus fréquent, 2e, 3e, etc...
 - L’**axe vertical** représente le **nombre de fois que le mot apparaît**.
 
 Les deux axes sont en **échelle logarithmique**.  
 Cela signifie qu’au lieu d’augmenter régulièrement (1, 2, 3, 4...), ils progressent par puissances de 10 :  
 **1 → 10 → 100 → 1000**, etc.
-
-Pourquoi faire cela ?  
-Parce que cela permet de mieux voir les différences **dans un très grand intervalle de valeurs**.  
-Si tu affiches un mot très fréquent (comme "le", "de", "et") avec un mot très rare (comme "capitulaire", "mégajoule"),  
-l’échelle normale serait illisible. Le **logarithme compresse visuellement les données** pour que la distribution soit observable.
+Cela permet de mieux voir les différences **dans un très grand intervalle de valeurs**.  
+Si on affiche un mot très fréquent (comme "le", "de", "et") avec un mot très rare (comme "capitulaire", "mégajoule"), l’échelle normale serait illisible. 
+Le **logarithme compresse visuellement les données** pour que la distribution soit observable.
 
 ---
 
 ### Pourquoi c’est important en NLP ?
 
 - Cela montre que **seulement quelques mots dominent le texte**.
-- Cela aide à comprendre que **supprimer ou pondérer ces mots** peut améliorer la qualité de la représentation.
 - C’est aussi utile pour **trier les mots rares**, souvent synonymes d’information spécifique.
 - C’est aussi utile pour **trier les mots trop fréquents**, souvent synonymes de bruit.
-- En résumé, **la loi de Zipf aide à mieux modéliser le langage naturel**.
+- En résumé, **la loi de Zipf aide à comprendre la structuration du langage naturel**.
 
     """)
